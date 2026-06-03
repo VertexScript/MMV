@@ -51,7 +51,10 @@ local Toggle = ESPTab:Toggle({
     Value = false,
     Callback = function(state)
         local PlayerESPObjects = {}
-        local Connection = nil
+        local CharacterConnections = {}
+        local RefreshLoop = nil
+        local PlayerAddedConnection = nil
+        local PlayerRemovingConnection = nil
         
         local function GetRole(plr)
             if not plr.Character then return "Unknown" end
@@ -62,50 +65,114 @@ local Toggle = ESPTab:Toggle({
             return "Innocent"
         end
         
-        local function UpdateESP()
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LocalPlayer and plr.Character then
-                    local esp = PlayerESPObjects[plr]
-                    if not esp then
-                        esp = Instance.new("Highlight")
-                        esp.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                        esp.FillTransparency = 0.65
-                        esp.OutlineTransparency = 1
-                        esp.Parent = plr.Character
-                        PlayerESPObjects[plr] = esp
+        local function CreateESP(plr)
+            if plr == LocalPlayer or not plr.Character then return end
+            
+            if PlayerESPObjects[plr] then
+                PlayerESPObjects[plr]:Destroy()
+                PlayerESPObjects[plr] = nil
+            end
+            
+            local esp = Instance.new("Highlight")
+            esp.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            esp.FillTransparency = 0.65
+            esp.OutlineTransparency = 1
+            esp.Parent = plr.Character
+            
+            PlayerESPObjects[plr] = esp
+            
+            local role = GetRole(plr)
+            local colors = {Murderer = Color3.new(1, 0, 0), Sheriff = Color3.new(0, 0.4, 1), Innocent = Color3.new(0, 1, 0), Unknown = Color3.new(1, 1, 1)}
+            esp.FillColor = colors[role]
+            esp.OutlineColor = colors[role]
+        end
+        
+        local function RemoveESP(plr)
+            if PlayerESPObjects[plr] then
+                PlayerESPObjects[plr]:Destroy()
+                PlayerESPObjects[plr] = nil
+            end
+            if CharacterConnections[plr] then
+                CharacterConnections[plr]:Disconnect()
+                CharacterConnections[plr] = nil
+            end
+        end
+        
+        local function SetupCharacter(plr)
+            if plr == LocalPlayer then return end
+            
+            if plr.Character then
+                CreateESP(plr)
+            end
+            
+            if CharacterConnections[plr] then
+                CharacterConnections[plr]:Disconnect()
+            end
+            
+            CharacterConnections[plr] = plr.CharacterAdded:Connect(function(char)
+                task.wait(0.5)
+                CreateESP(plr)
+                
+                char.DescendantAdded:Connect(function(desc)
+                    if desc:IsA("Accessory") or desc:IsA("Clothing") then
+                        task.wait(0.1)
+                        CreateESP(plr)
                     end
-                    local role = GetRole(plr)
-                    local colors = {Murderer = Color3.new(1, 0, 0), Sheriff = Color3.new(0, 0.4, 1), Innocent = Color3.new(0, 1, 0), Unknown = Color3.new(1, 1, 1)}
-                    esp.FillColor = colors[role]
-                    esp.OutlineColor = colors[role]
-                end
+                end)
+            end)
+            
+            if plr.Character then
+                plr.Character.DescendantAdded:Connect(function(desc)
+                    if desc:IsA("Accessory") or desc:IsA("Clothing") then
+                        task.wait(0.1)
+                        CreateESP(plr)
+                    end
+                end)
             end
         end
         
         if state then
-            UpdateESP()
+            for _, plr in ipairs(Players:GetPlayers()) do
+                SetupCharacter(plr)
+            end
             
-            Connection = task.spawn(function()
+            PlayerAddedConnection = Players.PlayerAdded:Connect(SetupCharacter)
+            
+            PlayerRemovingConnection = Players.PlayerRemoving:Connect(function(plr)
+                RemoveESP(plr)
+            end)
+            
+            RefreshLoop = task.spawn(function()
                 while true do
-                    task.wait(0.5)
-                    UpdateESP()
+                    task.wait(5)
+                    for _, plr in ipairs(Players:GetPlayers()) do
+                        if plr ~= LocalPlayer then
+                            CreateESP(plr)
+                        end
+                    end
                 end
             end)
             
-            getgenv().ESPConnection = Connection
-            getgenv().PlayerESPObjects = PlayerESPObjects
-            
         else
-            if getgenv().ESPConnection then
-                task.cancel(getgenv().ESPConnection)
-                getgenv().ESPConnection = nil
+            if RefreshLoop then
+                task.cancel(RefreshLoop)
             end
-            if getgenv().PlayerESPObjects then
-                for _, esp in pairs(getgenv().PlayerESPObjects) do
-                    if esp then esp:Destroy() end
-                end
-                getgenv().PlayerESPObjects = {}
+            if PlayerAddedConnection then
+                PlayerAddedConnection:Disconnect()
             end
+            if PlayerRemovingConnection then
+                PlayerRemovingConnection:Disconnect()
+            end
+            for plr, conn in pairs(CharacterConnections) do
+                if conn then conn:Disconnect() end
+            end
+            
+            for _, esp in pairs(PlayerESPObjects) do
+                if esp then esp:Destroy() end
+            end
+            
+            PlayerESPObjects = {}
+            CharacterConnections = {}
         end
     end
 })
@@ -433,6 +500,56 @@ local BarrierRemoverButton = MiscTab:Button({
     end
 })
 
+local RemoveBarrierAutomaticToggle = MiscTab:Toggle({
+    Title = "Automatic Remove Barriers",
+    Desc = "Removes barriers / invisible walls automatically",
+    Icon = "brick-wall-shield",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        local DescendantAddedConnection = nil
+        
+        local function ProcessObject(obj)
+            if obj.Name == "GlitchProof" then
+                obj:Destroy()
+                return
+            end
+            
+            if obj:IsA("BasePart") and obj.Transparency == 1 and not obj:IsA("TrussPart") then
+                local hasVisibleDecal = false
+                
+                for _, child in pairs(obj:GetChildren()) do
+                    if child:IsA("Decal") or child:IsA("Texture") then
+                        if child.Texture ~= "" then
+                            hasVisibleDecal = true
+                            break
+                        end
+                    end
+                end
+                
+                if not hasVisibleDecal then
+                    obj.CanCollide = false
+                end
+            end
+        end
+        
+        if state then
+            for _, obj in pairs(Workspace:GetDescendants()) do
+                ProcessObject(obj)
+            end
+
+            DescendantAddedConnection = Workspace.DescendantAdded:Connect(ProcessObject)
+            
+            RemoveBarrierAutomaticToggle.Connection = DescendantAddedConnection
+        else
+            if RemoveBarrierAutomaticToggle.Connection then
+                RemoveBarrierAutomaticToggle.Connection:Disconnect()
+                RemoveBarrierAutomaticToggle.Connection = nil
+            end
+        end
+    end
+})
+
 MiscTab:Divider()
 
 local TryhardToolsEnabled = false
@@ -498,6 +615,218 @@ local GrabGunKeybind = InnocentTab:Keybind({
         if humanoidRootPart then
             gunDrop:PivotTo(humanoidRootPart.CFrame)
         end
+    end
+})
+
+local GrabGunToggle = InnocentTab:Toggle({
+    Title = "Auto Grab Gun",
+    Desc = "Automatically grabs the gun when it drops",
+    Icon = "circle-star",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        if state then
+            getgenv().AutoGrabGunConnection = Workspace.DescendantAdded:Connect(function(obj)
+                if obj.Name == "GunDrop" then
+                    for _, item in pairs(LocalPlayer.Character:GetChildren()) do
+                        if item:IsA("Tool") and item.Name:lower():find("knife") then
+                            return
+                        end
+                    end
+                    
+                    task.wait(0.1)
+                    
+                    for _, part in pairs(obj:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.Transparency = 1
+                        elseif part.Name:lower():find("fire") or part.Name:lower():find("flame") then
+                            part:Destroy()
+                        end
+                    end
+                    
+                    local humanoidRootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    if humanoidRootPart then
+                        obj:PivotTo(humanoidRootPart.CFrame)
+                    end
+                end
+            end)
+            
+            local existingGun = Workspace:FindFirstChild("GunDrop", true)
+            if existingGun then
+                getgenv().AutoGrabGunConnection:Fire(existingGun)
+            end
+        else
+            if getgenv().AutoGrabGunConnection then
+                getgenv().AutoGrabGunConnection:Disconnect()
+                getgenv().AutoGrabGunConnection = nil
+            end
+        end
+    end
+})
+
+InnocentTab:Divider()
+
+local InvisibleKeybind = InnocentTab:Keybind({
+    Title = "Turn Invisible",
+    Desc = "Turns you Invisible (can't shoot as sheriff and can't kill as murderer)",
+    Value = "Y",
+    Callback = function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        
+        if getgenv().InvisOn then
+            getgenv().InvisOn = false
+            
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+                    p.Transparency = 0
+                end
+            end
+            
+            if workspace:FindFirstChild("invischair") then
+                workspace.invischair:Destroy()
+            end
+            
+        else
+            getgenv().InvisOn = true
+            
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+                    p.Transparency = 0.5
+                end
+            end
+            
+            local savedpos = hrp.CFrame
+            
+            char:MoveTo(Vector3.new(-25.95, 84, 3537.55))
+            task.wait(0.15)
+            
+            local Seat = Instance.new("Seat", workspace)
+            Seat.Anchored = false
+            Seat.CanCollide = false
+            Seat.Name = "invischair"
+            Seat.Transparency = 1
+            Seat.Position = Vector3.new(-25.95, 84, 3537.55)
+            
+            local Weld = Instance.new("Weld", Seat)
+            Weld.Part0 = Seat
+            Weld.Part1 = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+            
+            Seat.CFrame = savedpos
+        end
+    end
+})
+
+InnocentTab:Divider()
+
+local SpeedGlitchToggle = InnocentTab:Toggle({
+    Title = "Speed Glitch Toggle",
+    Desc = "Toggles speed glitching",
+    Icon = "sport-shoe",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        local function setupSpeedGlitch(char)
+            if not char then return end
+            
+            local humanoid = char:WaitForChild("Humanoid")
+            local originalSpeed = humanoid.WalkSpeed
+            local currentTween = nil
+            
+            getgenv().OriginalWalkSpeed = originalSpeed
+            
+            if getgenv().SpeedGlitchConnection then
+                getgenv().SpeedGlitchConnection:Disconnect()
+            end
+            
+            getgenv().SpeedGlitchConnection = humanoid.StateChanged:Connect(function(oldState, newState)
+                local hasTool = false
+                for _, item in pairs(char:GetChildren()) do
+                    if item:IsA("Tool") then
+                        hasTool = true
+                        break
+                    end
+                end
+                
+                if not hasTool then
+                    humanoid.WalkSpeed = originalSpeed
+                    if currentTween then
+                        currentTween:Cancel()
+                        currentTween = nil
+                    end
+                    return
+                end
+                
+                if humanoid:GetState() == Enum.HumanoidStateType.Climbing then return end
+                
+                if newState == Enum.HumanoidStateType.Jumping or newState == Enum.HumanoidStateType.Freefall then
+                    local baseSpeed = (getgenv().SpeedGlitchSpeed or 0) + originalSpeed
+                    
+                    local moveDir = humanoid.MoveDirection
+                    local isJumpingStraight = moveDir.Magnitude < 0.1
+                    local targetSpeed = isJumpingStraight and (baseSpeed * 0.3) or baseSpeed
+                    
+                    if currentTween then
+                        currentTween:Cancel()
+                    end
+                    
+                    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+                    local tweenGoal = {WalkSpeed = targetSpeed}
+                    currentTween = game:GetService("TweenService"):Create(humanoid, tweenInfo, tweenGoal)
+                    currentTween:Play()
+                end
+                
+                if newState == Enum.HumanoidStateType.Running or newState == Enum.HumanoidStateType.Landed then
+                    humanoid.WalkSpeed = originalSpeed
+                    if currentTween then
+                        currentTween:Cancel()
+                        currentTween = nil
+                    end
+                end
+            end)
+        end
+        
+        if state then
+            if LocalPlayer.Character then
+                setupSpeedGlitch(LocalPlayer.Character)
+            end
+            
+            getgenv().SpeedGlitchCharConnection = LocalPlayer.CharacterAdded:Connect(setupSpeedGlitch)
+        else
+            if getgenv().SpeedGlitchConnection then
+                getgenv().SpeedGlitchConnection:Disconnect()
+                getgenv().SpeedGlitchConnection = nil
+            end
+            if getgenv().SpeedGlitchCharConnection then
+                getgenv().SpeedGlitchCharConnection:Disconnect()
+                getgenv().SpeedGlitchCharConnection = nil
+            end
+            
+            local char = LocalPlayer.Character
+            if char then
+                local humanoid = char:FindFirstChild("Humanoid")
+                if humanoid and getgenv().OriginalWalkSpeed then
+                    humanoid.WalkSpeed = getgenv().OriginalWalkSpeed
+                end
+            end
+        end
+    end
+})
+
+local SpeedGlitchSlider = InnocentTab:Slider({
+    Title = "Speed Glitch - Speed",
+    Desc = "For some reason you have to adjust the speed before it starts working 😭",
+    Step = 1,
+    Value = {
+        Min = 10,
+        Max = 100,
+        Default = 50,
+    },
+    Callback = function(value)
+        getgenv().SpeedGlitchSpeed = value
     end
 })
 -------------------------------------------------------------------------------------------------------------------
@@ -631,4 +960,4 @@ local MurdererTab = Window:Tab({
     Icon = "target",
     Locked = false,
 })
--------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------------------
