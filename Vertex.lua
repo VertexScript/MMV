@@ -8,7 +8,7 @@ local Window = WindUI:CreateWindow({
 })
 
 Window:Tag({
-    Title = "V.1.2",
+    Title = "V.1.4",
     Icon = "book-marked",
     Color = Color3.fromHex("#30ff6a"),
     Radius = 30,
