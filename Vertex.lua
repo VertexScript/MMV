@@ -50,99 +50,76 @@ local Toggle = ESPTab:Toggle({
     Type = "Checkbox",
     Value = false,
     Callback = function(state)
-        local PlayerESPObjects = {}
-        local CharacterConnections = {}
-        local RefreshLoop = nil
-        local PlayerAddedConnection = nil
-        local PlayerRemovingConnection = nil
-        
-        local function GetRole(plr)
-            if not plr.Character then return "Unknown" end
-            local bp = plr:FindFirstChild("Backpack")
-            local char = plr.Character
-            if (bp and bp:FindFirstChild("Knife")) or char:FindFirstChild("Knife") then return "Murderer" end
-            if (bp and bp:FindFirstChild("Gun")) or char:FindFirstChild("Gun") then return "Sheriff" end
-            return "Innocent"
-        end
-        
-        local function CreateESP(plr)
-            if plr == LocalPlayer or not plr.Character then return end
-            
-            if PlayerESPObjects[plr] then
-                PlayerESPObjects[plr]:Destroy()
-                PlayerESPObjects[plr] = nil
-            end
-            
-            local esp = Instance.new("Highlight")
-            esp.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            esp.FillTransparency = 0.65
-            esp.OutlineTransparency = 1
-            esp.Parent = plr.Character
-            
-            PlayerESPObjects[plr] = esp
-            
-            local role = GetRole(plr)
-            local colors = {Murderer = Color3.new(1, 0, 0), Sheriff = Color3.new(0, 0.4, 1), Innocent = Color3.new(0, 1, 0), Unknown = Color3.new(1, 1, 1)}
-            esp.FillColor = colors[role]
-            esp.OutlineColor = colors[role]
-        end
-        
-        local function RemoveESP(plr)
-            if PlayerESPObjects[plr] then
-                PlayerESPObjects[plr]:Destroy()
-                PlayerESPObjects[plr] = nil
-            end
-            if CharacterConnections[plr] then
-                CharacterConnections[plr]:Disconnect()
-                CharacterConnections[plr] = nil
-            end
-        end
-        
-        local function SetupCharacter(plr)
-            if plr == LocalPlayer then return end
-            
-            if plr.Character then
-                CreateESP(plr)
-            end
-            
-            if CharacterConnections[plr] then
-                CharacterConnections[plr]:Disconnect()
-            end
-            
-            CharacterConnections[plr] = plr.CharacterAdded:Connect(function(char)
-                task.wait(0.5)
-                CreateESP(plr)
-                
-                char.DescendantAdded:Connect(function(desc)
-                    if desc:IsA("Accessory") or desc:IsA("Clothing") then
-                        task.wait(0.1)
-                        CreateESP(plr)
-                    end
-                end)
-            end)
-            
-            if plr.Character then
-                plr.Character.DescendantAdded:Connect(function(desc)
-                    if desc:IsA("Accessory") or desc:IsA("Clothing") then
-                        task.wait(0.1)
-                        CreateESP(plr)
-                    end
-                end)
-            end
-        end
-        
         if state then
+            getgenv().PlayerESPObjects = {}
+            getgenv().CharacterConnections = {}
+            
+            local function GetRole(plr)
+                if not plr.Character then return "Unknown" end
+                local bp = plr:FindFirstChild("Backpack")
+                local char = plr.Character
+                if (bp and bp:FindFirstChild("Knife")) or char:FindFirstChild("Knife") then return "Murderer" end
+                if (bp and bp:FindFirstChild("Gun")) or char:FindFirstChild("Gun") then return "Sheriff" end
+                return "Innocent"
+            end
+            
+            local function CreateESP(plr)
+                if plr == LocalPlayer or not plr.Character then return end
+                
+                if getgenv().PlayerESPObjects[plr] then
+                    getgenv().PlayerESPObjects[plr]:Destroy()
+                end
+                
+                local esp = Instance.new("Highlight")
+                esp.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                esp.FillTransparency = 0.65
+                esp.OutlineTransparency = 1
+                esp.Parent = plr.Character
+                
+                getgenv().PlayerESPObjects[plr] = esp
+                
+                local role = GetRole(plr)
+                local colors = {Murderer = Color3.new(1, 0, 0), Sheriff = Color3.new(0, 0.4, 1), Innocent = Color3.new(0, 1, 0), Unknown = Color3.new(1, 1, 1)}
+                esp.FillColor = colors[role]
+                esp.OutlineColor = colors[role]
+            end
+            
+            local function RemoveESP(plr)
+                if getgenv().PlayerESPObjects[plr] then
+                    getgenv().PlayerESPObjects[plr]:Destroy()
+                    getgenv().PlayerESPObjects[plr] = nil
+                end
+                if getgenv().CharacterConnections[plr] then
+                    getgenv().CharacterConnections[plr]:Disconnect()
+                    getgenv().CharacterConnections[plr] = nil
+                end
+            end
+            
+            local function SetupCharacter(plr)
+                if plr == LocalPlayer then return end
+                
+                if plr.Character then
+                    CreateESP(plr)
+                end
+                
+                if getgenv().CharacterConnections[plr] then
+                    getgenv().CharacterConnections[plr]:Disconnect()
+                end
+                
+                getgenv().CharacterConnections[plr] = plr.CharacterAdded:Connect(function(char)
+                    task.wait(0.5)
+                    CreateESP(plr)
+                end)
+            end
+            
             for _, plr in ipairs(Players:GetPlayers()) do
                 SetupCharacter(plr)
             end
             
-            PlayerAddedConnection = Players.PlayerAdded:Connect(SetupCharacter)
+            getgenv().PlayerESPPlayerAdded = Players.PlayerAdded:Connect(SetupCharacter)
+            getgenv().PlayerESPPlayerRemoving = Players.PlayerRemoving:Connect(RemoveESP)
             
-            PlayerRemovingConnection = Players.PlayerRemoving:Connect(function(plr)
-                RemoveESP(plr)
-            end)
-            
-            RefreshLoop = task.spawn(function()
+            getgenv().PlayerESPRefreshLoop = task.spawn(function()
                 while true do
                     task.wait(5)
                     for _, plr in ipairs(Players:GetPlayers()) do
@@ -154,25 +131,33 @@ local Toggle = ESPTab:Toggle({
             end)
             
         else
-            if RefreshLoop then
-                task.cancel(RefreshLoop)
-            end
-            if PlayerAddedConnection then
-                PlayerAddedConnection:Disconnect()
-            end
-            if PlayerRemovingConnection then
-                PlayerRemovingConnection:Disconnect()
-            end
-            for plr, conn in pairs(CharacterConnections) do
-                if conn then conn:Disconnect() end
+            if getgenv().PlayerESPRefreshLoop then
+                task.cancel(getgenv().PlayerESPRefreshLoop)
+                getgenv().PlayerESPRefreshLoop = nil
             end
             
-            for _, esp in pairs(PlayerESPObjects) do
-                if esp then esp:Destroy() end
+            if getgenv().PlayerESPPlayerAdded then
+                getgenv().PlayerESPPlayerAdded:Disconnect()
+                getgenv().PlayerESPPlayerAdded = nil
+            end
+            if getgenv().PlayerESPPlayerRemoving then
+                getgenv().PlayerESPPlayerRemoving:Disconnect()
+                getgenv().PlayerESPPlayerRemoving = nil
             end
             
-            PlayerESPObjects = {}
-            CharacterConnections = {}
+            if getgenv().CharacterConnections then
+                for plr, conn in pairs(getgenv().CharacterConnections) do
+                    if conn then conn:Disconnect() end
+                end
+                getgenv().CharacterConnections = {}
+            end
+            
+            if getgenv().PlayerESPObjects then
+                for plr, esp in pairs(getgenv().PlayerESPObjects) do
+                    if esp then esp:Destroy() end
+                end
+                getgenv().PlayerESPObjects = {}
+            end
         end
     end
 })
@@ -959,5 +944,163 @@ local MurdererTab = Window:Tab({
     Title = "Murderer",
     Icon = "target",
     Locked = false,
+})
+
+local SelectedPlayer = nil
+
+local function GetPlayerList()
+    local names = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            table.insert(names, plr.Name)
+        end
+    end
+    if #names == 0 then
+        names = {"No players"}
+    end
+    return names
+end
+
+local PlayerDropdown = MurdererTab:Dropdown({
+    Title = "Player Dropdown",
+    Desc = "Select a player to trap",
+    Values = GetPlayerList(),
+    Value = GetPlayerList()[1] or "No players",
+    Multi = false,
+    AllowNone = false,
+    Callback = function(option)
+        SelectedPlayer = Players:FindFirstChild(option)
+    end
+})
+
+task.spawn(function()
+    while true do
+        task.wait(5)
+        local newList = GetPlayerList()
+        PlayerDropdown:Refresh(newList)
+        
+        if SelectedPlayer and not SelectedPlayer.Parent then
+            SelectedPlayer = nil
+        end
+    end
+end)
+
+Players.PlayerAdded:Connect(function()
+    task.wait(0.5)
+    PlayerDropdown:Refresh(GetPlayerList())
+end)
+
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.5)
+    PlayerDropdown:Refresh(GetPlayerList())
+    if SelectedPlayer and not SelectedPlayer.Parent then
+        SelectedPlayer = nil
+    end
+end)
+
+local TrapPlayerButton = MurdererTab:Button({
+    Title = "Trap selected Player",
+    Desc = "Traps / Freezes the selected player for a few seconds",
+    Locked = false,
+    Callback = function()
+        if not SelectedPlayer or SelectedPlayer == "No players" then
+            WindUI:Notify({
+                Title = "No player selected",
+                Content = "Please select a player from the dropdown",
+                Duration = 3,
+                Icon = "x"
+            })
+            return
+        end
+        
+        if not SelectedPlayer.Character then
+            WindUI:Notify({
+                Title = "Player not spawned",
+                Content = "Selected player has no character",
+                Duration = 3,
+                Icon = "x"
+            })
+            return
+        end
+        
+        local targetHRP = SelectedPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not targetHRP then
+            WindUI:Notify({
+                Title = "Cannot trap",
+                Content = "Player has no HumanoidRootPart",
+                Duration = 3,
+                Icon = "x"
+            })
+            return
+        end
+        
+        local args = {
+            targetHRP.CFrame
+        }
+        
+        local trap = LocalPlayer.Character:FindFirstChild("Trap")
+        if trap then
+            local activate = trap:FindFirstChild("Activate")
+            if activate then
+                activate:FireServer(unpack(args))
+            end
+        end
+    end
+})
+-------------------------------------------------------------------------------------------------------------------
+local MapTab = Window:Tab({
+    Title = "Map",
+    Icon = "map",
+    Locked = false,
+})
+
+local LockdownRFButton = MapTab:Button({
+    Title = "Initiate Lockdown",
+    Desc = "Research Facility map only",
+    Locked = false,
+    Callback = function()
+        local interact = Workspace:WaitForChild("ResearchFacility"):WaitForChild("Interactive"):WaitForChild("SirenSystem"):WaitForChild("InteractiveBox"):WaitForChild("Interact")
+        if interact then
+            interact:FireServer()
+        end
+    end
+})
+
+local CloneRFButton = MapTab:Button({
+    Title = "Close Cloning Machine",
+    Desc = "Research Facility map only",
+    Locked = false,
+    Callback = function()
+        local interact = Workspace:WaitForChild("ResearchFacility"):WaitForChild("Interactive"):WaitForChild("CloningSystem"):WaitForChild("InteractiveBox"):WaitForChild("Interact")
+        if interact then
+            interact:FireServer()
+        end
+    end
+})
+
+local GarageButton = MapTab:Button({
+    Title = "Open / Close Garage",
+    Desc = "Research Facility map only",
+    Locked = false,
+    Callback = function()
+        local interact = Workspace:WaitForChild("ResearchFacility"):WaitForChild("Interactive"):WaitForChild("GarageSystem"):WaitForChild("InteractiveBox"):WaitForChild("Interact")
+        if interact then
+            interact:FireServer()
+        end
+    end
+})
+
+MapTab:Divider()
+
+local BankVaultButton = MapTab:Button({
+    Title = "Open Bank Vault",
+    Desc = "Bank 2 map only",
+    Locked = false,
+    Callback = function()
+        local interact = workspace:WaitForChild("Bank2"):WaitForChild("Interactive"):WaitForChild("VaultSystem"):WaitForChild("InteractiveBox"):WaitForChild("Interact")
+        if interact then
+            interact:FireServer()
+        end
+    end
 })
 -------------------------------------------------------------------------------------------------------------------
