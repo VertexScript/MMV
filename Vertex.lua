@@ -1,7 +1,7 @@
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 -------------------------------------------------------------------------------------------------------------------
 local Window = WindUI:CreateWindow({
-    Title = "Vortex UI | MMV",
+    Title = "Vertex UI | MMV",
     Icon = "door-open",
     Author = "by Uekiya",
     Folder = "MM2HubScript_U",
@@ -43,7 +43,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local Workspace = game:GetService("Workspace")
 
-local Toggle = ESPTab:Toggle({
+local PlayerESPToggle = ESPTab:Toggle({
     Title = "Player ESP",
     Desc = "Allows you to see Players through walls",
     Icon = "eye",
@@ -53,15 +53,85 @@ local Toggle = ESPTab:Toggle({
         if state then
             getgenv().PlayerESPObjects = {}
             getgenv().CharacterConnections = {}
+            getgenv().PlayerRoles = {}
             
-            local function GetRole(plr)
-                if not plr.Character then return "Unknown" end
-                local bp = plr:FindFirstChild("Backpack")
-                local char = plr.Character
-                if (bp and bp:FindFirstChild("Knife")) or char:FindFirstChild("Knife") then return "Murderer" end
-                if (bp and bp:FindFirstChild("Gun")) or char:FindFirstChild("Gun") then return "Sheriff" end
-                return "Innocent"
+            local function GetToolType(plr)
+                local backpack = plr:FindFirstChild("Backpack")
+                local character = plr.Character
+                
+                if backpack then
+                    if backpack:FindFirstChild("Gun") then return "Gun" end
+                    if backpack:FindFirstChild("Knife") then return "Knife" end
+                end
+                
+                if character then
+                    if character:FindFirstChild("Gun") then return "Gun" end
+                    if character:FindFirstChild("Knife") then return "Knife" end
+                end
+                
+                return nil
             end
+            
+            local function GetESPColor(plr)
+                for id, data in pairs(getgenv().PlayerRoles) do
+                    if data and typeof(data) == "table" then
+                        if tostring(id) == tostring(plr.UserId) or id == plr.Name then
+                            if data.Role == "Murderer" then
+                                return Color3.new(1, 0, 0)
+                            elseif data.Role == "Sheriff" then
+                                return Color3.new(0, 0.5, 1)
+                            elseif data.Role == "Innocent" then
+                                return Color3.new(0, 1, 0)
+                            end
+                        end
+                    end
+                end
+                
+                local toolType = GetToolType(plr)
+                if toolType == "Gun" then
+                    return Color3.new(0, 0.5, 1)
+                elseif toolType == "Knife" then
+                    return Color3.new(1, 0, 0)
+                end
+                
+                return Color3.new(0, 1, 0)
+            end
+            
+            local function UpdateAllESP()
+                for plr, esp in pairs(getgenv().PlayerESPObjects) do
+                    if esp and plr.Character then
+                        local newColor = GetESPColor(plr)
+                        esp.FillColor = newColor
+                        esp.OutlineColor = newColor
+                    end
+                end
+            end
+            
+            local Event = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("Fade")
+            getgenv().PlayerESPRemoteConnection = Event.OnClientEvent:Connect(function(roleData)
+                if typeof(roleData) == "table" then
+                    getgenv().PlayerRoles = roleData
+                end
+            end)
+            
+            local PlayerDataEvent = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("PlayerDataChanged")
+            getgenv().PlayerESPDataConnection = PlayerDataEvent.OnClientEvent:Connect(function(roleData)
+                if typeof(roleData) == "table" then
+                    getgenv().PlayerRoles = roleData
+                    UpdateAllESP()
+                end
+            end)
+            
+            local RoundEndEvent = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("RoundEndFade")
+            getgenv().PlayerESPRoundEndConnection = RoundEndEvent.OnClientEvent:Connect(function()
+                getgenv().PlayerRoles = {}
+                for plr, esp in pairs(getgenv().PlayerESPObjects) do
+                    if esp then
+                        esp.FillColor = Color3.new(0, 1, 0)
+                        esp.OutlineColor = Color3.new(0, 1, 0)
+                    end
+                end
+            end)
             
             local function CreateESP(plr)
                 if plr == LocalPlayer or not plr.Character then return end
@@ -73,15 +143,12 @@ local Toggle = ESPTab:Toggle({
                 local esp = Instance.new("Highlight")
                 esp.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                 esp.FillTransparency = 0.65
-                esp.OutlineTransparency = 1
+                esp.OutlineTransparency = 0.3
+                esp.FillColor = GetESPColor(plr)
+                esp.OutlineColor = esp.FillColor
                 esp.Parent = plr.Character
                 
                 getgenv().PlayerESPObjects[plr] = esp
-                
-                local role = GetRole(plr)
-                local colors = {Murderer = Color3.new(1, 0, 0), Sheriff = Color3.new(0, 0.4, 1), Innocent = Color3.new(0, 1, 0), Unknown = Color3.new(1, 1, 1)}
-                esp.FillColor = colors[role]
-                esp.OutlineColor = colors[role]
             end
             
             local function RemoveESP(plr)
@@ -121,21 +188,34 @@ local Toggle = ESPTab:Toggle({
             
             getgenv().PlayerESPRefreshLoop = task.spawn(function()
                 while true do
-                    task.wait(5)
+                    task.wait(1)
                     for _, plr in ipairs(Players:GetPlayers()) do
                         if plr ~= LocalPlayer then
-                            CreateESP(plr)
+                            if not getgenv().PlayerESPObjects[plr] then
+                                CreateESP(plr)
+                            else
+                                local newColor = GetESPColor(plr)
+                                getgenv().PlayerESPObjects[plr].FillColor = newColor
+                                getgenv().PlayerESPObjects[plr].OutlineColor = newColor
+                            end
                         end
                     end
                 end
             end)
             
         else
-            if getgenv().PlayerESPRefreshLoop then
-                task.cancel(getgenv().PlayerESPRefreshLoop)
-                getgenv().PlayerESPRefreshLoop = nil
+            if getgenv().PlayerESPRemoteConnection then
+                getgenv().PlayerESPRemoteConnection:Disconnect()
+                getgenv().PlayerESPRemoteConnection = nil
             end
-            
+            if getgenv().PlayerESPDataConnection then
+                getgenv().PlayerESPDataConnection:Disconnect()
+                getgenv().PlayerESPDataConnection = nil
+            end
+            if getgenv().PlayerESPRoundEndConnection then
+                getgenv().PlayerESPRoundEndConnection:Disconnect()
+                getgenv().PlayerESPRoundEndConnection = nil
+            end
             if getgenv().PlayerESPPlayerAdded then
                 getgenv().PlayerESPPlayerAdded:Disconnect()
                 getgenv().PlayerESPPlayerAdded = nil
@@ -143,6 +223,11 @@ local Toggle = ESPTab:Toggle({
             if getgenv().PlayerESPPlayerRemoving then
                 getgenv().PlayerESPPlayerRemoving:Disconnect()
                 getgenv().PlayerESPPlayerRemoving = nil
+            end
+            
+            if getgenv().PlayerESPRefreshLoop then
+                task.cancel(getgenv().PlayerESPRefreshLoop)
+                getgenv().PlayerESPRefreshLoop = nil
             end
             
             if getgenv().CharacterConnections then
@@ -158,9 +243,237 @@ local Toggle = ESPTab:Toggle({
                 end
                 getgenv().PlayerESPObjects = {}
             end
+            
+            getgenv().PlayerRoles = {}
         end
     end
 })
+
+local NameESPToggle = ESPTab:Toggle({
+    Title = "Player Names ESP",
+    Desc = "Shows username and display name above players",
+    Icon = "app-window",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        if state then
+            getgenv().NameESPObjects = {}
+            getgenv().NameESPConnections = {}
+            getgenv().NameESPRoles = {}
+            
+            local function GetToolType(plr)
+                local backpack = plr:FindFirstChild("Backpack")
+                local character = plr.Character
+                
+                if backpack then
+                    if backpack:FindFirstChild("Gun") then return "Gun" end
+                    if backpack:FindFirstChild("Knife") then return "Knife" end
+                end
+                
+                if character then
+                    if character:FindFirstChild("Gun") then return "Gun" end
+                    if character:FindFirstChild("Knife") then return "Knife" end
+                end
+                
+                return nil
+            end
+            
+            local function GetNameColor(plr)
+                for id, data in pairs(getgenv().NameESPRoles) do
+                    if data and typeof(data) == "table" then
+                        if tostring(id) == tostring(plr.UserId) or id == plr.Name then
+                            if data.Role == "Murderer" then
+                                return Color3.new(1, 0, 0)
+                            elseif data.Role == "Sheriff" then
+                                return Color3.new(0, 0.5, 1)
+                            elseif data.Role == "Innocent" then
+                                return Color3.new(0, 1, 0)
+                            end
+                        end
+                    end
+                end
+                
+                local toolType = GetToolType(plr)
+                if toolType == "Gun" then
+                    return Color3.new(0, 0.5, 1)
+                elseif toolType == "Knife" then
+                    return Color3.new(1, 0, 0)
+                end
+                
+                return Color3.new(0, 1, 0)
+            end
+            
+            local function UpdateAllNameESP()
+                for plr, esp in pairs(getgenv().NameESPObjects) do
+                    if esp and plr.Character then
+                        local label = esp:FindFirstChildOfClass("TextLabel")
+                        if label then
+                            label.TextColor3 = GetNameColor(plr)
+                        end
+                    end
+                end
+            end
+            
+            local Event = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("Fade")
+            getgenv().NameESPRemoteConnection = Event.OnClientEvent:Connect(function(roleData)
+                if typeof(roleData) == "table" then
+                    getgenv().NameESPRoles = roleData
+                end
+            end)
+            
+            local PlayerDataEvent = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("PlayerDataChanged")
+            getgenv().NameESPDataConnection = PlayerDataEvent.OnClientEvent:Connect(function(roleData)
+                if typeof(roleData) == "table" then
+                    getgenv().NameESPRoles = roleData
+                    UpdateAllNameESP()
+                end
+            end)
+            
+            local RoundEndEvent = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("RoundEndFade")
+            getgenv().NameESPRoundEndConnection = RoundEndEvent.OnClientEvent:Connect(function()
+                getgenv().NameESPRoles = {}
+                for plr, esp in pairs(getgenv().NameESPObjects) do
+                    if esp then
+                        local label = esp:FindFirstChildOfClass("TextLabel")
+                        if label then
+                            label.TextColor3 = Color3.new(0, 1, 0)
+                        end
+                    end
+                end
+            end)
+            
+            local function CreateNameESP(plr)
+                if plr == LocalPlayer or not plr.Character then return end
+                
+                local head = plr.Character:FindFirstChild("Head")
+                if not head then return end
+                
+                if getgenv().NameESPObjects[plr] then
+                    getgenv().NameESPObjects[plr]:Destroy()
+                end
+                
+                local esp = Instance.new("BillboardGui")
+                esp.Size = UDim2.new(0, 200, 0, 40)
+                esp.AlwaysOnTop = true
+                esp.StudsOffset = Vector3.new(0, 2.5, 0)
+                esp.Adornee = head
+                esp.Parent = head
+                
+                local label = Instance.new("TextLabel")
+                label.Size = UDim2.new(1, 0, 1, 0)
+                label.BackgroundTransparency = 1
+                label.TextStrokeTransparency = 0
+                label.TextSize = 14
+                label.Font = Enum.Font.GothamBold
+                label.TextColor3 = GetNameColor(plr)
+                
+                local displayName = plr.DisplayName ~= plr.Name and " (" .. plr.DisplayName .. ")" or ""
+                label.Text = plr.Name .. displayName
+                label.Parent = esp
+                
+                getgenv().NameESPObjects[plr] = esp
+            end
+            
+            local function RemoveNameESP(plr)
+                if getgenv().NameESPObjects[plr] then
+                    getgenv().NameESPObjects[plr]:Destroy()
+                    getgenv().NameESPObjects[plr] = nil
+                end
+                if getgenv().NameESPConnections[plr] then
+                    getgenv().NameESPConnections[plr]:Disconnect()
+                    getgenv().NameESPConnections[plr] = nil
+                end
+            end
+            
+            local function SetupNameCharacter(plr)
+                if plr == LocalPlayer then return end
+                
+                if plr.Character then
+                    CreateNameESP(plr)
+                end
+                
+                if getgenv().NameESPConnections[plr] then
+                    getgenv().NameESPConnections[plr]:Disconnect()
+                end
+                
+                getgenv().NameESPConnections[plr] = plr.CharacterAdded:Connect(function(char)
+                    task.wait(0.5)
+                    CreateNameESP(plr)
+                end)
+            end
+            
+            for _, plr in ipairs(Players:GetPlayers()) do
+                SetupNameCharacter(plr)
+            end
+            
+            getgenv().NameESPPlayerAdded = Players.PlayerAdded:Connect(SetupNameCharacter)
+            getgenv().NameESPPlayerRemoving = Players.PlayerRemoving:Connect(RemoveNameESP)
+            
+            getgenv().NameESPRefreshLoop = task.spawn(function()
+                while true do
+                    task.wait(1)
+                    for _, plr in ipairs(Players:GetPlayers()) do
+                        if plr ~= LocalPlayer then
+                            if not getgenv().NameESPObjects[plr] then
+                                CreateNameESP(plr)
+                            else
+                                local label = getgenv().NameESPObjects[plr]:FindFirstChildOfClass("TextLabel")
+                                if label then
+                                    label.TextColor3 = GetNameColor(plr)
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+            
+        else
+            if getgenv().NameESPRemoteConnection then
+                getgenv().NameESPRemoteConnection:Disconnect()
+                getgenv().NameESPRemoteConnection = nil
+            end
+            if getgenv().NameESPDataConnection then
+                getgenv().NameESPDataConnection:Disconnect()
+                getgenv().NameESPDataConnection = nil
+            end
+            if getgenv().NameESPRoundEndConnection then
+                getgenv().NameESPRoundEndConnection:Disconnect()
+                getgenv().NameESPRoundEndConnection = nil
+            end
+            if getgenv().NameESPPlayerAdded then
+                getgenv().NameESPPlayerAdded:Disconnect()
+                getgenv().NameESPPlayerAdded = nil
+            end
+            if getgenv().NameESPPlayerRemoving then
+                getgenv().NameESPPlayerRemoving:Disconnect()
+                getgenv().NameESPPlayerRemoving = nil
+            end
+            
+            if getgenv().NameESPRefreshLoop then
+                task.cancel(getgenv().NameESPRefreshLoop)
+                getgenv().NameESPRefreshLoop = nil
+            end
+            
+            if getgenv().NameESPConnections then
+                for plr, conn in pairs(getgenv().NameESPConnections) do
+                    if conn then conn:Disconnect() end
+                end
+                getgenv().NameESPConnections = {}
+            end
+            
+            if getgenv().NameESPObjects then
+                for plr, esp in pairs(getgenv().NameESPObjects) do
+                    if esp then esp:Destroy() end
+                end
+                getgenv().NameESPObjects = {}
+            end
+            
+            getgenv().NameESPRoles = {}
+        end
+    end
+})
+
+ESPTab:Divider()
 
 local GunDropToggle = ESPTab:Toggle({
     Title = "Gun Drop ESP",
@@ -280,67 +593,6 @@ local TrapESPToggle = ESPTab:Toggle({
             TrapESPToggle.DescendantAddedConnection = nil
             TrapESPToggle.DescendantRemovingConnection = nil
             TrapESPToggle.OriginalTransparencies = {}
-        end
-    end
-})
-
-local NameESPToggle = ESPTab:Toggle({
-    Title = "Player Names ESP",
-    Desc = "Shows username and display name above players",
-    Icon = "app-window",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        local NameESPObjects = {}
-        local Connection = nil
-        
-        if state then
-            Connection = RunService.RenderStepped:Connect(function()
-                for _, plr in ipairs(Players:GetPlayers()) do
-                    if plr ~= LocalPlayer and plr.Character then
-                        local head = plr.Character:FindFirstChild("Head")
-                        if head then
-                            local esp = NameESPObjects[plr]
-                            if not esp then
-                                esp = Instance.new("BillboardGui")
-                                esp.Size = UDim2.new(0, 200, 0, 40)
-                                esp.AlwaysOnTop = true
-                                esp.StudsOffset = Vector3.new(0, 2.5, 0)
-                                
-                                local label = Instance.new("TextLabel")
-                                label.Size = UDim2.new(1, 0, 1, 0)
-                                label.BackgroundTransparency = 1
-                                label.TextStrokeTransparency = 0
-                                label.TextSize = 14
-                                label.Font = Enum.Font.GothamBold
-                                label.TextColor3 = Color3.new(1, 1, 1)
-                                label.Parent = esp
-                                
-                                NameESPObjects[plr] = esp
-                            end
-                            
-                            local displayName = plr.DisplayName ~= plr.Name and " (" .. plr.DisplayName .. ")" or ""
-                            esp.TextLabel.Text = plr.Name .. displayName
-                            esp.Parent = head
-                        end
-                    end
-                end
-            end)
-            
-            getgenv().NameESPConnection = Connection
-            getgenv().NameESPObjects = NameESPObjects
-            
-        else
-            if getgenv().NameESPConnection then
-                getgenv().NameESPConnection:Disconnect()
-                getgenv().NameESPConnection = nil
-            end
-            if getgenv().NameESPObjects then
-                for _, esp in pairs(getgenv().NameESPObjects) do
-                    if esp then esp:Destroy() end
-                end
-                getgenv().NameESPObjects = {}
-            end
         end
     end
 })
@@ -803,7 +1055,7 @@ local SpeedGlitchToggle = InnocentTab:Toggle({
 
 local SpeedGlitchSlider = InnocentTab:Slider({
     Title = "Speed Glitch - Speed",
-    Desc = "For some reason you have to adjust the speed before it starts working 😭",
+    Desc = "Adjust the speed so it'll start working'",
     Step = 1,
     Value = {
         Min = 10,
@@ -812,6 +1064,94 @@ local SpeedGlitchSlider = InnocentTab:Slider({
     },
     Callback = function(value)
         getgenv().SpeedGlitchSpeed = value
+    end
+})
+
+InnocentTab:Divider()
+
+local TrapsToggle = InnocentTab:Toggle({
+    Title = "Traps",
+    Desc = "Toggles On / Off whether or not you get trapped by traps placed down",
+    Icon = "check",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        if state then
+            getgenv().TrapsDisabled = {}
+            
+            local function DisableTrap(model)
+                if model.Name:lower() ~= "Trap" then return end
+                
+                local Trigger = model:FindFirstChild("Trigger")
+                if not Trigger then return end
+                
+                if getgenv().TrapsDisabled[model] then return end
+                
+                local originalState = Trigger.CanTouch
+                Trigger:SetAttribute("OriginalCanTouch", originalState)
+                Trigger.CanTouch = false
+                
+                for _, child in ipairs(Trigger:GetDescendants()) do
+                    if child:IsA("TouchInterest") then
+                        child:Destroy()
+                    end
+                end
+                
+                getgenv().TrapsDisabled[model] = true
+            end
+            
+            local function EnableTrap(model)
+                if model.Name:lower() ~= "Trap" then return end
+                
+                local Trigger = model:FindFirstChild("Trigger")
+                if not Trigger then return end
+                
+                local Original = trigger:GetAttribute("OriginalCanTouch")
+                if Original ~= nil then
+                    Trigger.CanTouch = Original
+                else
+                    Trigger.CanTouch = true
+                end
+                
+                getgenv().TrapsDisabled[model] = nil
+            end
+            
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("Model") and obj.Name:lower() == "Trap" then
+                    DisableTrap(obj)
+                end
+            end
+            
+            getgenv().TrapsConnection = workspace.DescendantAdded:Connect(function(descendant)
+                if descendant:IsA("Model") and descendant.Name:lower() == "Trap" then
+                    task.wait(0.1)
+                    DisableTrap(descendant)
+                elseif descendant.Name:lower() == "Trigger" and descendant.Parent and descendant.Parent.Name:lower() == "Trap" then
+                    task.wait(0.1)
+                    DisableTrap(descendant.Parent)
+                end
+            end)
+            
+        else
+            if getgenv().TrapsConnection then
+                getgenv().TrapsConnection:Disconnect()
+                getgenv().TrapsConnection = nil
+            end
+            
+            for model, _ in pairs(getgenv().TrapsDisabled or {}) do
+                if model and model:FindFirstChild("Trigger") then
+                    local Trigger = model:FindFirstChild("Trigger")
+                    local Original = trigger:GetAttribute("OriginalCanTouch")
+                    if Original ~= nil then
+                        Trigger.CanTouch = original
+                    else
+                        Trigger.CanTouch = true
+                    end
+                end
+            end
+            
+            getgenv().TrapsDisabled = {}
+        end
     end
 })
 -------------------------------------------------------------------------------------------------------------------
