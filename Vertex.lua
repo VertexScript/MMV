@@ -8,7 +8,7 @@ local Window = WindUI:CreateWindow({
 })
 
 Window:Tag({
-    Title = "V.1.4",
+    Title = "V.1.7",
     Icon = "book-marked",
     Color = Color3.fromHex("#30ff6a"),
     Radius = 30,
@@ -342,6 +342,12 @@ local NameESPToggle = ESPTab:Toggle({
                 end
             end)
             
+            local RoundBeginningEvent = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("TeleportToPart")
+            getgenv().NameESPRoundStartConnection = RoundBeginningEvent.OnClientEvent:Connect(function()
+                getgenv().NameESPRoles = {}
+                UpdateAllNameESP()
+            end)
+            
             local function CreateNameESP(plr)
                 if plr == LocalPlayer or not plr.Character then return end
                 
@@ -439,6 +445,10 @@ local NameESPToggle = ESPTab:Toggle({
             if getgenv().NameESPRoundEndConnection then
                 getgenv().NameESPRoundEndConnection:Disconnect()
                 getgenv().NameESPRoundEndConnection = nil
+            end
+            if getgenv().NameESPRoundStartConnection then
+                getgenv().NameESPRoundStartConnection:Disconnect()
+                getgenv().NameESPRoundStartConnection = nil
             end
             if getgenv().NameESPPlayerAdded then
                 getgenv().NameESPPlayerAdded:Disconnect()
@@ -712,24 +722,25 @@ local BarrierRemoverButton = MiscTab:Button({
     Desc = "Removes any invisible walls / barriers",
     Locked = false,
     Callback = function()
+        if not getgenv().BarrierModifiedParts then
+            getgenv().BarrierModifiedParts = {}
+        end
+        
+        local function IsWall(obj)
+            return math.abs(obj.CFrame.UpVector.Y) < 0.5
+        end
+        
         for _, obj in pairs(Workspace:GetDescendants()) do
-            if obj.Name == "GlitchProof" then
-                obj:Destroy()
-            end
-            
-            if obj:IsA("BasePart") and obj.Transparency == 1 and not obj:IsA("TrussPart") then
-                local hasVisibleDecal = false
-                
-                for _, child in pairs(obj:GetChildren()) do
-                    if child:IsA("Decal") or child:IsA("Texture") then
-                        if child.Texture ~= "" then
-                            hasVisibleDecal = true
-                            break
-                        end
+            if obj:IsA("BasePart") and not obj:IsA("TrussPart") then
+                if obj.Name == "GlitchProof" then
+                    if not getgenv().BarrierModifiedParts[obj] then
+                        getgenv().BarrierModifiedParts[obj] = obj.CanCollide
                     end
-                end
-                
-                if not hasVisibleDecal then
+                    obj.CanCollide = false
+                elseif obj.Transparency == 1 and IsWall(obj) then
+                    if not getgenv().BarrierModifiedParts[obj] then
+                        getgenv().BarrierModifiedParts[obj] = obj.CanCollide
+                    end
                     obj.CanCollide = false
                 end
             end
@@ -744,27 +755,28 @@ local RemoveBarrierAutomaticToggle = MiscTab:Toggle({
     Type = "Checkbox",
     Value = false,
     Callback = function(state)
-        local DescendantAddedConnection = nil
+        if not getgenv().BarrierModifiedParts then
+            getgenv().BarrierModifiedParts = {}
+        end
+        
+        local function IsWall(obj)
+            return math.abs(obj.CFrame.UpVector.Y) < 0.5
+        end
         
         local function ProcessObject(obj)
-            if obj.Name == "GlitchProof" then
-                obj:Destroy()
-                return
-            end
-            
-            if obj:IsA("BasePart") and obj.Transparency == 1 and not obj:IsA("TrussPart") then
-                local hasVisibleDecal = false
-                
-                for _, child in pairs(obj:GetChildren()) do
-                    if child:IsA("Decal") or child:IsA("Texture") then
-                        if child.Texture ~= "" then
-                            hasVisibleDecal = true
-                            break
-                        end
+            if obj:IsA("BasePart") and not obj:IsA("TrussPart") then
+                if obj.Name == "GlitchProof" then
+                    if not getgenv().BarrierModifiedParts[obj] then
+                        getgenv().BarrierModifiedParts[obj] = obj.CanCollide
                     end
+                    obj.CanCollide = false
+                    return
                 end
                 
-                if not hasVisibleDecal then
+                if obj.Transparency == 1 and IsWall(obj) then
+                    if not getgenv().BarrierModifiedParts[obj] then
+                        getgenv().BarrierModifiedParts[obj] = obj.CanCollide
+                    end
                     obj.CanCollide = false
                 end
             end
@@ -775,14 +787,20 @@ local RemoveBarrierAutomaticToggle = MiscTab:Toggle({
                 ProcessObject(obj)
             end
 
-            DescendantAddedConnection = Workspace.DescendantAdded:Connect(ProcessObject)
-            
-            RemoveBarrierAutomaticToggle.Connection = DescendantAddedConnection
+            getgenv().BarrierDescendantConnection = Workspace.DescendantAdded:Connect(ProcessObject)
         else
-            if RemoveBarrierAutomaticToggle.Connection then
-                RemoveBarrierAutomaticToggle.Connection:Disconnect()
-                RemoveBarrierAutomaticToggle.Connection = nil
+            if getgenv().BarrierDescendantConnection then
+                getgenv().BarrierDescendantConnection:Disconnect()
+                getgenv().BarrierDescendantConnection = nil
             end
+            
+            for part, originalCollisionState in pairs(getgenv().BarrierModifiedParts) do
+                if part and part.Parent then
+                    part.CanCollide = originalCollisionState
+                end
+            end
+            
+            getgenv().BarrierModifiedParts = {}
         end
     end
 })
@@ -817,6 +835,129 @@ LocalPlayer.CharacterAdded:Connect(function()
         giveTools()
     end
 end)
+
+MiscTab:Divider()
+
+local OutfitToggle = MiscTab:Toggle({
+    Title = "Outfits Toggle",
+    Desc = "Toggles outfit GUI in KMM, might work when Season 2 comes out",
+    Icon = "check",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        if state then
+            getgenv().OutfitGUIToggleActive = true
+            
+            local Players = game:GetService("Players")
+            local ReplicatedStorage = game:GetService("ReplicatedStorage")
+            local LocalPlayer = Players.LocalPlayer
+            local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+            
+            local gameTopbar = PlayerGui:WaitForChild("GameTopbar")
+            local originalScript = gameTopbar:FindFirstChild("CatalogV4")
+            if originalScript and originalScript:IsA("LocalScript") then
+                originalScript.Disabled = true
+                getgenv().OriginalCatalogScript = originalScript
+            end
+            
+            task.wait(0.2)
+            
+            local function SetupButton()
+                local container = gameTopbar:FindFirstChild("Container")
+                if not container then return end
+                
+                local avatar = container:FindFirstChild("Avatar")
+                if not avatar then return end
+                
+                avatar.Visible = true
+                
+                local button = avatar:FindFirstChild("Container") and avatar.Container:FindFirstChild("Button")
+                if button and not getgenv().OutfitButtonConnection then
+                    getgenv().OutfitButtonConnection = button.Activated:Connect(function()
+                        if not getgenv().OutfitGUIToggleActive then return end
+                        
+                        local catalogGUI = PlayerGui:FindFirstChild("CatalogGUI")
+                        if not catalogGUI then return end
+                        
+                        local newState = not catalogGUI.Enabled
+                        catalogGUI.Enabled = newState
+                        
+                        if newState then
+                            getgenv().OutfitWasOpened = true
+                            
+                            local CatalogCreator = ReplicatedStorage:FindFirstChild("CatalogAvatarCreator")
+                            if CatalogCreator then
+                                local Events = CatalogCreator:FindFirstChild("Events")
+                                if Events then
+                                    local openCatalog = Events:FindFirstChild("ClientToggleOpenCatalog")
+                                    if openCatalog then
+                                        openCatalog:Fire(true)
+                                    end
+                                end
+                                local toggleUI = CatalogCreator:FindFirstChild("ClientToggleUIVisible")
+                                if toggleUI then
+                                    toggleUI:Fire(true)
+                                end
+                            end
+                        else
+                            getgenv().OutfitWasOpened = false
+                        end
+                    end)
+                end
+            end
+            
+            SetupButton()
+            
+            getgenv().OutfitLoop = task.spawn(function()
+                while getgenv().OutfitGUIToggleActive do
+                    local container = gameTopbar:FindFirstChild("Container")
+                    if container then
+                        local avatar = container:FindFirstChild("Avatar")
+                        if avatar then
+                            avatar.Visible = true
+                        end
+                    end
+                    
+                    if getgenv().OutfitWasOpened then
+                        local catalogGUI = PlayerGui:FindFirstChild("CatalogGUI")
+                        if catalogGUI and not catalogGUI.Enabled then
+                            catalogGUI.Enabled = true
+                        end
+                    end
+                    
+                    task.wait(0.05)
+                end
+            end)
+            
+        else
+            getgenv().OutfitGUIToggleActive = false
+            getgenv().OutfitWasOpened = false
+            
+            if getgenv().OriginalCatalogScript then
+                getgenv().OriginalCatalogScript.Disabled = false
+                getgenv().OriginalCatalogScript = nil
+            end
+            
+            if getgenv().OutfitButtonConnection then
+                getgenv().OutfitButtonConnection:Disconnect()
+                getgenv().OutfitButtonConnection = nil
+            end
+            
+            if getgenv().OutfitLoop then
+                task.cancel(getgenv().OutfitLoop)
+                getgenv().OutfitLoop = nil
+            end
+            
+            local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+            if PlayerGui then
+                local catalogGUI = PlayerGui:FindFirstChild("CatalogGUI")
+                if catalogGUI then
+                    catalogGUI.Enabled = false
+                end
+            end
+        end
+    end
+})
 -------------------------------------------------------------------------------------------------------------------
 local InnocentTab = Window:Tab({
     Title = "Innocent",
@@ -1069,88 +1210,124 @@ local SpeedGlitchSlider = InnocentTab:Slider({
 
 InnocentTab:Divider()
 
-local TrapsToggle = InnocentTab:Toggle({
-    Title = "Traps",
-    Desc = "Toggles On / Off whether or not you get trapped by traps placed down",
+local EasierGlitchingToggle = InnocentTab:Toggle({
+    Title = "Easy Glitching",
+    Desc = "Helps you glitch through walls more easily",
     Icon = "check",
     Type = "Checkbox",
     Value = false,
     Callback = function(state)
         if state then
-            getgenv().TrapsDisabled = {}
+            local SpamThreshold = 1
+            local TeleportDistance = 1.2
+            local WallDistance = 0.4
+            local CooldownTime = 0
             
-            local function DisableTrap(model)
-                if model.Name:lower() ~= "Trap" then return end
+            getgenv().GlitchingActive = true
+            getgenv().GlitchingCooldown = false
+            getgenv().GlitchingTools = {}
+            
+            local lastEquipTime = 0
+            local lastTool = nil
+            
+            local function CheckWallInFront()
+                local character = LocalPlayer.Character
+                if not character then return false end
                 
-                local Trigger = model:FindFirstChild("Trigger")
-                if not Trigger then return end
+                local hrp = character:FindFirstChild("HumanoidRootPart")
+                if not hrp then return false end
                 
-                if getgenv().TrapsDisabled[model] then return end
+                local lookVector = hrp.CFrame.LookVector
+                local horizontalDir = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
                 
-                local originalState = Trigger.CanTouch
-                Trigger:SetAttribute("OriginalCanTouch", originalState)
-                Trigger.CanTouch = false
+                local rayOrigin = hrp.Position
+                local rayDirection = horizontalDir * WallDistance
                 
-                for _, child in ipairs(Trigger:GetDescendants()) do
-                    if child:IsA("TouchInterest") then
-                        child:Destroy()
+                local raycastParams = RaycastParams.new()
+                raycastParams.FilterDescendantsInstances = {character}
+                raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+                
+                local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+                
+                return result ~= nil
+            end
+            
+            local function TeleportForward()
+                local character = LocalPlayer.Character
+                if not character then return end
+                
+                local hrp = character:FindFirstChild("HumanoidRootPart")
+                if not hrp then return end
+                
+                local lookVector = hrp.CFrame.LookVector
+                local horizontalDir = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
+                local forward = horizontalDir * TeleportDistance
+                
+                hrp.Position = hrp.Position + forward
+            end
+            
+            local function OnToolEquipped(tool)
+                if not getgenv().GlitchingActive or getgenv().GlitchingCooldown then return end
+                
+                local currentTime = tick()
+                
+                if lastTool == tool and (currentTime - lastEquipTime) < SpamThreshold then
+                    if CheckWallInFront() then
+                        TeleportForward()
+                        
+                        getgenv().GlitchingCooldown = true
+                        task.delay(CooldownTime, function()
+                            getgenv().GlitchingCooldown = false
+                        end)
                     end
                 end
                 
-                getgenv().TrapsDisabled[model] = true
+                lastEquipTime = currentTime
+                lastTool = tool
             end
             
-            local function EnableTrap(model)
-                if model.Name:lower() ~= "Trap" then return end
+            local function SetupTool(tool)
+                if not tool:IsA("Tool") then return end
+                if getgenv().GlitchingTools[tool] then return end
                 
-                local Trigger = model:FindFirstChild("Trigger")
-                if not Trigger then return end
-                
-                local Original = trigger:GetAttribute("OriginalCanTouch")
-                if Original ~= nil then
-                    Trigger.CanTouch = Original
-                else
-                    Trigger.CanTouch = true
-                end
-                
-                getgenv().TrapsDisabled[model] = nil
+                getgenv().GlitchingTools[tool] = true
+                tool.Equipped:Connect(function()
+                    OnToolEquipped(tool)
+                end)
             end
             
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                if obj:IsA("Model") and obj.Name:lower() == "Trap" then
-                    DisableTrap(obj)
+            local function OnCharacterAdded(character)
+                getgenv().GlitchingTools = {}
+                
+                local backpack = LocalPlayer:WaitForChild("Backpack")
+                
+                for _, tool in ipairs(backpack:GetChildren()) do
+                    SetupTool(tool)
                 end
+                
+                backpack.ChildAdded:Connect(SetupTool)
+                
+                character.ChildAdded:Connect(function(child)
+                    if child:IsA("Tool") then
+                        SetupTool(child)
+                    end
+                end)
             end
             
-            getgenv().TrapsConnection = workspace.DescendantAdded:Connect(function(descendant)
-                if descendant:IsA("Model") and descendant.Name:lower() == "Trap" then
-                    task.wait(0.1)
-                    DisableTrap(descendant)
-                elseif descendant.Name:lower() == "Trigger" and descendant.Parent and descendant.Parent.Name:lower() == "Trap" then
-                    task.wait(0.1)
-                    DisableTrap(descendant.Parent)
-                end
-            end)
+            if LocalPlayer.Character then
+                OnCharacterAdded(LocalPlayer.Character)
+            end
+            
+            getgenv().GlitchingCharacterAdded = LocalPlayer.CharacterAdded:Connect(OnCharacterAdded)
             
         else
-            if getgenv().TrapsConnection then
-                getgenv().TrapsConnection:Disconnect()
-                getgenv().TrapsConnection = nil
-            end
+            getgenv().GlitchingActive = false
+            getgenv().GlitchingTools = {}
             
-            for model, _ in pairs(getgenv().TrapsDisabled or {}) do
-                if model and model:FindFirstChild("Trigger") then
-                    local Trigger = model:FindFirstChild("Trigger")
-                    local Original = trigger:GetAttribute("OriginalCanTouch")
-                    if Original ~= nil then
-                        Trigger.CanTouch = original
-                    else
-                        Trigger.CanTouch = true
-                    end
-                end
+            if getgenv().GlitchingCharacterAdded then
+                getgenv().GlitchingCharacterAdded:Disconnect()
+                getgenv().GlitchingCharacterAdded = nil
             end
-            
-            getgenv().TrapsDisabled = {}
         end
     end
 })
@@ -1443,4 +1620,130 @@ local BankVaultButton = MapTab:Button({
         end
     end
 })
+-------------------------------------------------------------------------------------------------------------------
+local VotingTab = Window:Tab({
+    Title = "Voting",
+    Icon = "map-pin-check",
+    Locked = false,
+})
+
+local MapDropdown = VotingTab:Dropdown({
+    Title = "Maps you can Vote for",
+    Desc = "Allows you to select a map to vote for",
+    Values = {},
+    Value = nil,
+    Multi = false,
+    AllowNone = true,
+    Callback = function(option) 
+        getgenv().SelectedMap = option
+    end
+})
+
+local function GetAvailableMaps()
+    local maps = {}
+    local regularLobby = Workspace:FindFirstChild("RegularLobby")
+    
+    if regularLobby then
+        for i = 1, 3 do
+            local votePad = regularLobby:FindFirstChild("VotePad" .. i)
+            if votePad then
+                local voteInfoGui = votePad:FindFirstChild("VoteInfoGui")
+                if voteInfoGui then
+                    local container = voteInfoGui:FindFirstChild("Container")
+                    if container then
+                        local mapNameLabel = container:FindFirstChild("MapName")
+                        if mapNameLabel and mapNameLabel:IsA("TextLabel") and mapNameLabel.Text ~= "" then
+                            table.insert(maps, mapNameLabel.Text)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return maps
+end
+
+getgenv().MapToPad = {}
+
+local function UpdateMaps()
+    getgenv().MapToPad = {}
+    local regularLobby = Workspace:FindFirstChild("RegularLobby")
+    
+    if regularLobby then
+        for i = 1, 3 do
+            local votePad = regularLobby:FindFirstChild("VotePad" .. i)
+            if votePad then
+                local voteInfoGui = votePad:FindFirstChild("VoteInfoGui")
+                if voteInfoGui then
+                    local container = voteInfoGui:FindFirstChild("Container")
+                    if container then
+                        local mapNameLabel = container:FindFirstChild("MapName")
+                        if mapNameLabel and mapNameLabel:IsA("TextLabel") and mapNameLabel.Text ~= "" then
+                            getgenv().MapToPad[mapNameLabel.Text] = votePad
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    local maps = {}
+    for mapName, _ in pairs(getgenv().MapToPad) do
+        table.insert(maps, mapName)
+    end
+    
+    MapDropdown.Values = maps
+    if MapDropdown.SetValues then
+        MapDropdown.SetValues(maps)
+    end
+end
+
+UpdateMaps()
+
+task.spawn(function()
+    while true do
+        task.wait(5)
+        UpdateMaps()
+    end
+end)
+
+local VoteButton = VotingTab:Button({
+    Title = "Vote for Selected Map",
+    Desc = "Votes for the Map you selected, then resets.",
+    Locked = false,
+    Callback = function()
+        local selectedMap = getgenv().SelectedMap
+        if not selectedMap then return end
+        
+        local votePad = getgenv().MapToPad[selectedMap]
+        if not votePad then 
+            UpdateMaps()
+            votePad = getgenv().MapToPad[selectedMap]
+            if not votePad then return end
+        end
+        
+        local pad = votePad:FindFirstChild("Pad")
+        if pad and pad:IsA("BasePart") then
+            local character = game.Players.LocalPlayer.Character
+            if character then
+                local hrp = character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp.CFrame = pad.CFrame + Vector3.new(0, 3, 0)
+                end
+            end
+        end
+        
+        getgenv().SelectedMap = nil
+        MapDropdown.Value = nil
+    end
+})
+-------------------------------------------------------------------------------------------------------------------
+local FlingTab = Window:Tab({
+    Title = "Fling",
+    Icon = "wind",
+    Locked = false,
+})
+
+
 -------------------------------------------------------------------------------------------------------------------
