@@ -43,6 +43,94 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local Workspace = game:GetService("Workspace")
 
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+local Remotes = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay")
+local FadeEvent = Remotes:WaitForChild("Fade")
+local DataChangedEvent = Remotes:WaitForChild("PlayerDataChanged")
+local RoundEndEvent = Remotes:WaitForChild("RoundEndFade")
+local RoundStartEvent = Remotes:WaitForChild("TeleportToPart")
+
+local function GetToolType(player)
+    local backpack = player:FindFirstChild("Backpack")
+    local character = player.Character
+    
+    if backpack then
+        if backpack:FindFirstChild("Gun") then return "Gun" end
+        if backpack:FindFirstChild("Knife") then return "Knife" end
+    end
+    
+    if character then
+        if character:FindFirstChild("Gun") then return "Gun" end
+        if character:FindFirstChild("Knife") then return "Knife" end
+    end
+    
+    return nil
+end
+
+local function GetRoleColor(player, playerRoles)
+    for id, data in pairs(playerRoles) do
+        if data and typeof(data) == "table" then
+            if tostring(id) == tostring(player.UserId) or id == player.Name then
+                local colors = {
+                    Murderer = Color3.new(1, 0, 0),
+                    Sheriff = Color3.new(0, 0.5, 1),
+                    Innocent = Color3.new(0, 1, 0)
+                }
+                return colors[data.Role] or colors.Innocent
+            end
+        end
+    end
+    
+    local toolType = GetToolType(player)
+    if toolType == "Gun" then return Color3.new(0, 0.5, 1) end
+    if toolType == "Knife" then return Color3.new(1, 0, 0) end
+    
+    return Color3.new(0, 1, 0)
+end
+
+local function CleanupESP(envPrefix)
+    local connections = {
+        "RemoteConnection", "DataConnection", "RoundEndConnection", 
+        "RoundStartConnection", "PlayerAdded", "PlayerRemoving"
+    }
+    
+    for _, name in ipairs(connections) do
+        local conn = getgenv()[envPrefix .. name]
+        if conn then
+            conn:Disconnect()
+            getgenv()[envPrefix .. name] = nil
+        end
+    end
+    
+    local loop = getgenv()[envPrefix .. "RefreshLoop"]
+    if loop then
+        task.cancel(loop)
+        getgenv()[envPrefix .. "RefreshLoop"] = nil
+    end
+    
+    local charConns = getgenv()[envPrefix .. "Connections"]
+    if charConns then
+        for _, conn in pairs(charConns) do
+            if conn then conn:Disconnect() end
+        end
+        getgenv()[envPrefix .. "Connections"] = {}
+    end
+    
+    local objects = getgenv()[envPrefix .. "Objects"]
+    if objects then
+        for _, obj in pairs(objects) do
+            if obj then obj:Destroy() end
+        end
+        getgenv()[envPrefix .. "Objects"] = {}
+    end
+    
+    local rolesKey = envPrefix:gsub("ESP", "") .. "Roles"
+    getgenv()[rolesKey] = {}
+end
+
 local PlayerESPToggle = ESPTab:Toggle({
     Title = "Player ESP",
     Desc = "Allows you to see Players through walls",
@@ -50,202 +138,107 @@ local PlayerESPToggle = ESPTab:Toggle({
     Type = "Checkbox",
     Value = false,
     Callback = function(state)
-        if state then
-            getgenv().PlayerESPObjects = {}
-            getgenv().CharacterConnections = {}
-            getgenv().PlayerRoles = {}
-            
-            local function GetToolType(plr)
-                local backpack = plr:FindFirstChild("Backpack")
-                local character = plr.Character
-                
-                if backpack then
-                    if backpack:FindFirstChild("Gun") then return "Gun" end
-                    if backpack:FindFirstChild("Knife") then return "Knife" end
-                end
-                
-                if character then
-                    if character:FindFirstChild("Gun") then return "Gun" end
-                    if character:FindFirstChild("Knife") then return "Knife" end
-                end
-                
-                return nil
-            end
-            
-            local function GetESPColor(plr)
-                for id, data in pairs(getgenv().PlayerRoles) do
-                    if data and typeof(data) == "table" then
-                        if tostring(id) == tostring(plr.UserId) or id == plr.Name then
-                            if data.Role == "Murderer" then
-                                return Color3.new(1, 0, 0)
-                            elseif data.Role == "Sheriff" then
-                                return Color3.new(0, 0.5, 1)
-                            elseif data.Role == "Innocent" then
-                                return Color3.new(0, 1, 0)
-                            end
-                        end
-                    end
-                end
-                
-                local toolType = GetToolType(plr)
-                if toolType == "Gun" then
-                    return Color3.new(0, 0.5, 1)
-                elseif toolType == "Knife" then
-                    return Color3.new(1, 0, 0)
-                end
-                
-                return Color3.new(0, 1, 0)
-            end
-            
-            local function UpdateAllESP()
-                for plr, esp in pairs(getgenv().PlayerESPObjects) do
-                    if esp and plr.Character then
-                        local newColor = GetESPColor(plr)
-                        esp.FillColor = newColor
-                        esp.OutlineColor = newColor
-                    end
-                end
-            end
-            
-            local Event = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("Fade")
-            getgenv().PlayerESPRemoteConnection = Event.OnClientEvent:Connect(function(roleData)
-                if typeof(roleData) == "table" then
-                    getgenv().PlayerRoles = roleData
-                end
-            end)
-            
-            local PlayerDataEvent = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("PlayerDataChanged")
-            getgenv().PlayerESPDataConnection = PlayerDataEvent.OnClientEvent:Connect(function(roleData)
-                if typeof(roleData) == "table" then
-                    getgenv().PlayerRoles = roleData
-                    UpdateAllESP()
-                end
-            end)
-            
-            local RoundEndEvent = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("RoundEndFade")
-            getgenv().PlayerESPRoundEndConnection = RoundEndEvent.OnClientEvent:Connect(function()
-                getgenv().PlayerRoles = {}
-                for plr, esp in pairs(getgenv().PlayerESPObjects) do
-                    if esp then
-                        esp.FillColor = Color3.new(0, 1, 0)
-                        esp.OutlineColor = Color3.new(0, 1, 0)
-                    end
-                end
-            end)
-            
-            local function CreateESP(plr)
-                if plr == LocalPlayer or not plr.Character then return end
-                
-                if getgenv().PlayerESPObjects[plr] then
-                    getgenv().PlayerESPObjects[plr]:Destroy()
-                end
-                
-                local esp = Instance.new("Highlight")
-                esp.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                esp.FillTransparency = 0.65
-                esp.OutlineTransparency = 0.3
-                esp.FillColor = GetESPColor(plr)
-                esp.OutlineColor = esp.FillColor
-                esp.Parent = plr.Character
-                
-                getgenv().PlayerESPObjects[plr] = esp
-            end
-            
-            local function RemoveESP(plr)
-                if getgenv().PlayerESPObjects[plr] then
-                    getgenv().PlayerESPObjects[plr]:Destroy()
-                    getgenv().PlayerESPObjects[plr] = nil
-                end
-                if getgenv().CharacterConnections[plr] then
-                    getgenv().CharacterConnections[plr]:Disconnect()
-                    getgenv().CharacterConnections[plr] = nil
-                end
-            end
-            
-            local function SetupCharacter(plr)
-                if plr == LocalPlayer then return end
-                
-                if plr.Character then
-                    CreateESP(plr)
-                end
-                
-                if getgenv().CharacterConnections[plr] then
-                    getgenv().CharacterConnections[plr]:Disconnect()
-                end
-                
-                getgenv().CharacterConnections[plr] = plr.CharacterAdded:Connect(function(char)
-                    task.wait(0.5)
-                    CreateESP(plr)
-                end)
-            end
-            
-            for _, plr in ipairs(Players:GetPlayers()) do
-                SetupCharacter(plr)
-            end
-            
-            getgenv().PlayerESPPlayerAdded = Players.PlayerAdded:Connect(SetupCharacter)
-            getgenv().PlayerESPPlayerRemoving = Players.PlayerRemoving:Connect(RemoveESP)
-            
-            getgenv().PlayerESPRefreshLoop = task.spawn(function()
-                while true do
-                    task.wait(1)
-                    for _, plr in ipairs(Players:GetPlayers()) do
-                        if plr ~= LocalPlayer then
-                            if not getgenv().PlayerESPObjects[plr] then
-                                CreateESP(plr)
-                            else
-                                local newColor = GetESPColor(plr)
-                                getgenv().PlayerESPObjects[plr].FillColor = newColor
-                                getgenv().PlayerESPObjects[plr].OutlineColor = newColor
-                            end
-                        end
-                    end
-                end
-            end)
-            
-        else
-            if getgenv().PlayerESPRemoteConnection then
-                getgenv().PlayerESPRemoteConnection:Disconnect()
-                getgenv().PlayerESPRemoteConnection = nil
-            end
-            if getgenv().PlayerESPDataConnection then
-                getgenv().PlayerESPDataConnection:Disconnect()
-                getgenv().PlayerESPDataConnection = nil
-            end
-            if getgenv().PlayerESPRoundEndConnection then
-                getgenv().PlayerESPRoundEndConnection:Disconnect()
-                getgenv().PlayerESPRoundEndConnection = nil
-            end
-            if getgenv().PlayerESPPlayerAdded then
-                getgenv().PlayerESPPlayerAdded:Disconnect()
-                getgenv().PlayerESPPlayerAdded = nil
-            end
-            if getgenv().PlayerESPPlayerRemoving then
-                getgenv().PlayerESPPlayerRemoving:Disconnect()
-                getgenv().PlayerESPPlayerRemoving = nil
-            end
-            
-            if getgenv().PlayerESPRefreshLoop then
-                task.cancel(getgenv().PlayerESPRefreshLoop)
-                getgenv().PlayerESPRefreshLoop = nil
-            end
-            
-            if getgenv().CharacterConnections then
-                for plr, conn in pairs(getgenv().CharacterConnections) do
-                    if conn then conn:Disconnect() end
-                end
-                getgenv().CharacterConnections = {}
-            end
-            
-            if getgenv().PlayerESPObjects then
-                for plr, esp in pairs(getgenv().PlayerESPObjects) do
-                    if esp then esp:Destroy() end
-                end
-                getgenv().PlayerESPObjects = {}
-            end
-            
-            getgenv().PlayerRoles = {}
+        if not state then
+            CleanupESP("PlayerESP")
+            return
         end
+        
+        getgenv().PlayerESPObjects = {}
+        getgenv().PlayerESPConnections = {}
+        getgenv().PlayerRoles = {}
+        
+        local function UpdateESPColor(player, esp)
+            if not esp then return end
+            local color = GetRoleColor(player, getgenv().PlayerRoles)
+            esp.FillColor = color
+            esp.OutlineColor = color
+        end
+        
+        local function CreateESP(player)
+            if player == LocalPlayer or not player.Character then return end
+            
+            if getgenv().PlayerESPObjects[player] then
+                getgenv().PlayerESPObjects[player]:Destroy()
+            end
+            
+            local esp = Instance.new("Highlight")
+            esp.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            esp.FillTransparency = 0.65
+            esp.OutlineTransparency = 0.3
+            esp.Parent = player.Character
+            
+            UpdateESPColor(player, esp)
+            getgenv().PlayerESPObjects[player] = esp
+        end
+        
+        local function SetupPlayer(player)
+            if player == LocalPlayer then return end
+            
+            if player.Character then
+                CreateESP(player)
+            end
+            
+            getgenv().PlayerESPConnections[player] = player.CharacterAdded:Connect(function()
+                task.wait(0.5)
+                CreateESP(player)
+            end)
+        end
+        
+        getgenv().PlayerESPRemoteConnection = FadeEvent.OnClientEvent:Connect(function(data)
+            if typeof(data) == "table" then
+                getgenv().PlayerRoles = data
+            end
+        end)
+        
+        getgenv().PlayerESPDataConnection = DataChangedEvent.OnClientEvent:Connect(function(data)
+            if typeof(data) == "table" then
+                getgenv().PlayerRoles = data
+                for plr, esp in pairs(getgenv().PlayerESPObjects) do
+                    UpdateESPColor(plr, esp)
+                end
+            end
+        end)
+        
+        getgenv().PlayerESPRoundEndConnection = RoundEndEvent.OnClientEvent:Connect(function()
+            getgenv().PlayerRoles = {}
+            for _, esp in pairs(getgenv().PlayerESPObjects) do
+                if esp then
+                    esp.FillColor = Color3.new(0, 1, 0)
+                    esp.OutlineColor = Color3.new(0, 1, 0)
+                end
+            end
+        end)
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            SetupPlayer(player)
+        end
+        
+        getgenv().PlayerESPPlayerAdded = Players.PlayerAdded:Connect(SetupPlayer)
+        getgenv().PlayerESPPlayerRemoving = Players.PlayerRemoving:Connect(function(player)
+            if getgenv().PlayerESPObjects[player] then
+                getgenv().PlayerESPObjects[player]:Destroy()
+                getgenv().PlayerESPObjects[player] = nil
+            end
+            if getgenv().PlayerESPConnections[player] then
+                getgenv().PlayerESPConnections[player]:Disconnect()
+                getgenv().PlayerESPConnections[player] = nil
+            end
+        end)
+        
+        getgenv().PlayerESPRefreshLoop = task.spawn(function()
+            while true do
+                task.wait(1)
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer then
+                        if not getgenv().PlayerESPObjects[player] then
+                            CreateESP(player)
+                        else
+                            UpdateESPColor(player, getgenv().PlayerESPObjects[player])
+                        end
+                    end
+                end
+            end
+        end)
     end
 })
 
@@ -256,230 +249,130 @@ local NameESPToggle = ESPTab:Toggle({
     Type = "Checkbox",
     Value = false,
     Callback = function(state)
-        if state then
-            getgenv().NameESPObjects = {}
-            getgenv().NameESPConnections = {}
-            getgenv().NameESPRoles = {}
-            
-            local function GetToolType(plr)
-                local backpack = plr:FindFirstChild("Backpack")
-                local character = plr.Character
-                
-                if backpack then
-                    if backpack:FindFirstChild("Gun") then return "Gun" end
-                    if backpack:FindFirstChild("Knife") then return "Knife" end
-                end
-                
-                if character then
-                    if character:FindFirstChild("Gun") then return "Gun" end
-                    if character:FindFirstChild("Knife") then return "Knife" end
-                end
-                
-                return nil
-            end
-            
-            local function GetNameColor(plr)
-                for id, data in pairs(getgenv().NameESPRoles) do
-                    if data and typeof(data) == "table" then
-                        if tostring(id) == tostring(plr.UserId) or id == plr.Name then
-                            if data.Role == "Murderer" then
-                                return Color3.new(1, 0, 0)
-                            elseif data.Role == "Sheriff" then
-                                return Color3.new(0, 0.5, 1)
-                            elseif data.Role == "Innocent" then
-                                return Color3.new(0, 1, 0)
-                            end
-                        end
-                    end
-                end
-                
-                local toolType = GetToolType(plr)
-                if toolType == "Gun" then
-                    return Color3.new(0, 0.5, 1)
-                elseif toolType == "Knife" then
-                    return Color3.new(1, 0, 0)
-                end
-                
-                return Color3.new(0, 1, 0)
-            end
-            
-            local function UpdateAllNameESP()
-                for plr, esp in pairs(getgenv().NameESPObjects) do
-                    if esp and plr.Character then
-                        local label = esp:FindFirstChildOfClass("TextLabel")
-                        if label then
-                            label.TextColor3 = GetNameColor(plr)
-                        end
-                    end
-                end
-            end
-            
-            local Event = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("Fade")
-            getgenv().NameESPRemoteConnection = Event.OnClientEvent:Connect(function(roleData)
-                if typeof(roleData) == "table" then
-                    getgenv().NameESPRoles = roleData
-                end
-            end)
-            
-            local PlayerDataEvent = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("PlayerDataChanged")
-            getgenv().NameESPDataConnection = PlayerDataEvent.OnClientEvent:Connect(function(roleData)
-                if typeof(roleData) == "table" then
-                    getgenv().NameESPRoles = roleData
-                    UpdateAllNameESP()
-                end
-            end)
-            
-            local RoundEndEvent = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("RoundEndFade")
-            getgenv().NameESPRoundEndConnection = RoundEndEvent.OnClientEvent:Connect(function()
-                getgenv().NameESPRoles = {}
-                for plr, esp in pairs(getgenv().NameESPObjects) do
-                    if esp then
-                        local label = esp:FindFirstChildOfClass("TextLabel")
-                        if label then
-                            label.TextColor3 = Color3.new(0, 1, 0)
-                        end
-                    end
-                end
-            end)
-            
-            local RoundBeginningEvent = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("TeleportToPart")
-            getgenv().NameESPRoundStartConnection = RoundBeginningEvent.OnClientEvent:Connect(function()
-                getgenv().NameESPRoles = {}
-                UpdateAllNameESP()
-            end)
-            
-            local function CreateNameESP(plr)
-                if plr == LocalPlayer or not plr.Character then return end
-                
-                local head = plr.Character:FindFirstChild("Head")
-                if not head then return end
-                
-                if getgenv().NameESPObjects[plr] then
-                    getgenv().NameESPObjects[plr]:Destroy()
-                end
-                
-                local esp = Instance.new("BillboardGui")
-                esp.Size = UDim2.new(0, 200, 0, 40)
-                esp.AlwaysOnTop = true
-                esp.StudsOffset = Vector3.new(0, 2.5, 0)
-                esp.Adornee = head
-                esp.Parent = head
-                
-                local label = Instance.new("TextLabel")
-                label.Size = UDim2.new(1, 0, 1, 0)
-                label.BackgroundTransparency = 1
-                label.TextStrokeTransparency = 0
-                label.TextSize = 14
-                label.Font = Enum.Font.GothamBold
-                label.TextColor3 = GetNameColor(plr)
-                
-                local displayName = plr.DisplayName ~= plr.Name and " (" .. plr.DisplayName .. ")" or ""
-                label.Text = plr.Name .. displayName
-                label.Parent = esp
-                
-                getgenv().NameESPObjects[plr] = esp
-            end
-            
-            local function RemoveNameESP(plr)
-                if getgenv().NameESPObjects[plr] then
-                    getgenv().NameESPObjects[plr]:Destroy()
-                    getgenv().NameESPObjects[plr] = nil
-                end
-                if getgenv().NameESPConnections[plr] then
-                    getgenv().NameESPConnections[plr]:Disconnect()
-                    getgenv().NameESPConnections[plr] = nil
-                end
-            end
-            
-            local function SetupNameCharacter(plr)
-                if plr == LocalPlayer then return end
-                
-                if plr.Character then
-                    CreateNameESP(plr)
-                end
-                
-                if getgenv().NameESPConnections[plr] then
-                    getgenv().NameESPConnections[plr]:Disconnect()
-                end
-                
-                getgenv().NameESPConnections[plr] = plr.CharacterAdded:Connect(function(char)
-                    task.wait(0.5)
-                    CreateNameESP(plr)
-                end)
-            end
-            
-            for _, plr in ipairs(Players:GetPlayers()) do
-                SetupNameCharacter(plr)
-            end
-            
-            getgenv().NameESPPlayerAdded = Players.PlayerAdded:Connect(SetupNameCharacter)
-            getgenv().NameESPPlayerRemoving = Players.PlayerRemoving:Connect(RemoveNameESP)
-            
-            getgenv().NameESPRefreshLoop = task.spawn(function()
-                while true do
-                    task.wait(1)
-                    for _, plr in ipairs(Players:GetPlayers()) do
-                        if plr ~= LocalPlayer then
-                            if not getgenv().NameESPObjects[plr] then
-                                CreateNameESP(plr)
-                            else
-                                local label = getgenv().NameESPObjects[plr]:FindFirstChildOfClass("TextLabel")
-                                if label then
-                                    label.TextColor3 = GetNameColor(plr)
-                                end
-                            end
-                        end
-                    end
-                end
-            end)
-            
-        else
-            if getgenv().NameESPRemoteConnection then
-                getgenv().NameESPRemoteConnection:Disconnect()
-                getgenv().NameESPRemoteConnection = nil
-            end
-            if getgenv().NameESPDataConnection then
-                getgenv().NameESPDataConnection:Disconnect()
-                getgenv().NameESPDataConnection = nil
-            end
-            if getgenv().NameESPRoundEndConnection then
-                getgenv().NameESPRoundEndConnection:Disconnect()
-                getgenv().NameESPRoundEndConnection = nil
-            end
-            if getgenv().NameESPRoundStartConnection then
-                getgenv().NameESPRoundStartConnection:Disconnect()
-                getgenv().NameESPRoundStartConnection = nil
-            end
-            if getgenv().NameESPPlayerAdded then
-                getgenv().NameESPPlayerAdded:Disconnect()
-                getgenv().NameESPPlayerAdded = nil
-            end
-            if getgenv().NameESPPlayerRemoving then
-                getgenv().NameESPPlayerRemoving:Disconnect()
-                getgenv().NameESPPlayerRemoving = nil
-            end
-            
-            if getgenv().NameESPRefreshLoop then
-                task.cancel(getgenv().NameESPRefreshLoop)
-                getgenv().NameESPRefreshLoop = nil
-            end
-            
-            if getgenv().NameESPConnections then
-                for plr, conn in pairs(getgenv().NameESPConnections) do
-                    if conn then conn:Disconnect() end
-                end
-                getgenv().NameESPConnections = {}
-            end
-            
-            if getgenv().NameESPObjects then
-                for plr, esp in pairs(getgenv().NameESPObjects) do
-                    if esp then esp:Destroy() end
-                end
-                getgenv().NameESPObjects = {}
-            end
-            
-            getgenv().NameESPRoles = {}
+        if not state then
+            CleanupESP("NameESP")
+            return
         end
+        
+        getgenv().NameESPObjects = {}
+        getgenv().NameESPConnections = {}
+        getgenv().NameRoles = {}
+        
+        local function UpdateNameColor(player, esp)
+            if not esp then return end
+            local label = esp:FindFirstChildOfClass("TextLabel")
+            if label then
+                label.TextColor3 = GetRoleColor(player, getgenv().NameRoles)
+            end
+        end
+        
+        local function CreateNameESP(player)
+            if player == LocalPlayer or not player.Character then return end
+            
+            local head = player.Character:FindFirstChild("Head")
+            if not head then return end
+            
+            if getgenv().NameESPObjects[player] then
+                getgenv().NameESPObjects[player]:Destroy()
+            end
+            
+            local esp = Instance.new("BillboardGui")
+            esp.Size = UDim2.new(0, 200, 0, 40)
+            esp.AlwaysOnTop = true
+            esp.StudsOffset = Vector3.new(0, 2.5, 0)
+            esp.Adornee = head
+            esp.Parent = head
+            
+            local label = Instance.new("TextLabel")
+            label.Size = UDim2.new(1, 0, 1, 0)
+            label.BackgroundTransparency = 1
+            label.TextStrokeTransparency = 0
+            label.TextSize = 14
+            label.Font = Enum.Font.GothamBold
+            label.TextColor3 = GetRoleColor(player, getgenv().NameRoles)
+            
+            local displaySuffix = player.DisplayName ~= player.Name and " (" .. player.DisplayName .. ")" or ""
+            label.Text = player.Name .. displaySuffix
+            label.Parent = esp
+            
+            getgenv().NameESPObjects[player] = esp
+        end
+        
+        local function SetupPlayer(player)
+            if player == LocalPlayer then return end
+            
+            if player.Character then
+                CreateNameESP(player)
+            end
+            
+            getgenv().NameESPConnections[player] = player.CharacterAdded:Connect(function()
+                task.wait(0.5)
+                CreateNameESP(player)
+            end)
+        end
+        
+        getgenv().NameESPRemoteConnection = FadeEvent.OnClientEvent:Connect(function(data)
+            if typeof(data) == "table" then
+                getgenv().NameRoles = data
+            end
+        end)
+        
+        getgenv().NameESPDataConnection = DataChangedEvent.OnClientEvent:Connect(function(data)
+            if typeof(data) == "table" then
+                getgenv().NameRoles = data
+                for plr, esp in pairs(getgenv().NameESPObjects) do
+                    UpdateNameColor(plr, esp)
+                end
+            end
+        end)
+        
+        getgenv().NameESPRoundEndConnection = RoundEndEvent.OnClientEvent:Connect(function()
+            getgenv().NameRoles = {}
+            for _, esp in pairs(getgenv().NameESPObjects) do
+                local label = esp and esp:FindFirstChildOfClass("TextLabel")
+                if label then
+                    label.TextColor3 = Color3.new(0, 1, 0)
+                end
+            end
+        end)
+        
+        getgenv().NameESPRoundStartConnection = RoundStartEvent.OnClientEvent:Connect(function()
+            getgenv().NameRoles = {}
+            for plr, esp in pairs(getgenv().NameESPObjects) do
+                UpdateNameColor(plr, esp)
+            end
+        end)
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            SetupPlayer(player)
+        end
+        
+        getgenv().NameESPPlayerAdded = Players.PlayerAdded:Connect(SetupPlayer)
+        getgenv().NameESPPlayerRemoving = Players.PlayerRemoving:Connect(function(player)
+            if getgenv().NameESPObjects[player] then
+                getgenv().NameESPObjects[player]:Destroy()
+                getgenv().NameESPObjects[player] = nil
+            end
+            if getgenv().NameESPConnections[player] then
+                getgenv().NameESPConnections[player]:Disconnect()
+                getgenv().NameESPConnections[player] = nil
+            end
+        end)
+        
+        getgenv().NameESPRefreshLoop = task.spawn(function()
+            while true do
+                task.wait(1)
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer then
+                        if not getgenv().NameESPObjects[player] then
+                            CreateNameESP(player)
+                        else
+                            UpdateNameColor(player, getgenv().NameESPObjects[player])
+                        end
+                    end
+                end
+            end
+        end)
     end
 })
 
@@ -1745,5 +1638,78 @@ local FlingTab = Window:Tab({
     Locked = false,
 })
 
+local AntiFlingToggle = FlingTab:Toggle({
+    Title = "Anti-Fling",
+    Desc = "Disables collision with other players",
+    Icon = "shield",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        local function SetPlayerCollision(player, enabled)
+            if player == LocalPlayer then return end
+            local character = player.Character
+            if not character then return end
+            
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = enabled
+                end
+            end
+        end
+        
+        local function UpdateAllCollisions()
+            for _, player in ipairs(Players:GetPlayers()) do
+                SetPlayerCollision(player, not state)
+            end
+        end
+        
+        if state then
+            UpdateAllCollisions()
+            
+            getgenv().AntiFlingPlayerAdded = Players.PlayerAdded:Connect(function(player)
+                player.CharacterAdded:Connect(function()
+                    task.wait(0.5)
+                    SetPlayerCollision(player, false)
+                end)
+                if player.Character then
+                    SetPlayerCollision(player, false)
+                end
+            end)
+            
+            getgenv().AntiFlingPlayerRemoving = Players.PlayerRemoving:Connect(function(player)
+                SetPlayerCollision(player, true)
+            end)
+            
+            getgenv().AntiFlingLoop = task.spawn(function()
+                while getgenv().AntiFlingEnabled do
+                    task.wait(1)
+                    UpdateAllCollisions()
+                end
+            end)
+            getgenv().AntiFlingEnabled = true
+            
+        else
+            getgenv().AntiFlingEnabled = false
+            
+            if getgenv().AntiFlingPlayerAdded then
+                getgenv().AntiFlingPlayerAdded:Disconnect()
+                getgenv().AntiFlingPlayerAdded = nil
+            end
+            if getgenv().AntiFlingPlayerRemoving then
+                getgenv().AntiFlingPlayerRemoving:Disconnect()
+                getgenv().AntiFlingPlayerRemoving = nil
+            end
+            if getgenv().AntiFlingLoop then
+                task.cancel(getgenv().AntiFlingLoop)
+                getgenv().AntiFlingLoop = nil
+            end
+            
+            for _, player in ipairs(Players:GetPlayers()) do
+                SetPlayerCollision(player, true)
+            end
+        end
+    end
+})
 
+FlingTab:Divider()
 -------------------------------------------------------------------------------------------------------------------
