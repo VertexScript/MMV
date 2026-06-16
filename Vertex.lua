@@ -13,6 +13,13 @@ Window:Tag({
     Color = Color3.fromHex("#30ff6a"),
     Radius = 30,
 })
+
+local Event = game:GetService("ReplicatedStorage").ChatMessage
+firesignal(Event.OnClientEvent, 
+    {
+        text = "[Private] Vertex Loaded. ™"
+    }
+)
 -------------------------------------------------------------------------------------------------------------------
 local SettingsTab = Window:Tab({
     Title = "Settings",
@@ -1632,84 +1639,284 @@ local VoteButton = VotingTab:Button({
     end
 })
 -------------------------------------------------------------------------------------------------------------------
-local FlingTab = Window:Tab({
-    Title = "Fling",
-    Icon = "wind",
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+getgenv().CurrentSheriffInput = ""
+getgenv().CurrentMurdererInput = ""
+getgenv().CurrentMapInput = ""
+
+local AdminTab = Window:Tab({
+    Title = "Admin",
+    Icon = "sparkles",
     Locked = false,
 })
 
-local AntiFlingToggle = FlingTab:Toggle({
-    Title = "Anti-Fling",
-    Desc = "Disables collision with other players",
-    Icon = "shield",
+local MakeSheriffButton = AdminTab:Button({
+    Title = "Make Sheriff",
+    Desc = "Makes you the sheriff",
+    Callback = function()
+        local TextChatService = game:GetService("TextChatService")
+        local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+        channel:SendAsync("/sheriff " .. LocalPlayer.Name)
+    end
+})
+
+local MakeSheriffToggle = AdminTab:Toggle({
+    Title = "Automatically Become Sheriff",
+    Desc = "Makes you sheriff every round.",
+    Icon = "check",
     Type = "Checkbox",
     Value = false,
     Callback = function(state)
-        local function SetPlayerCollision(player, enabled)
-            if player == LocalPlayer then return end
-            local character = player.Character
-            if not character then return end
-            
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = enabled
-                end
-            end
-        end
-        
-        local function UpdateAllCollisions()
-            for _, player in ipairs(Players:GetPlayers()) do
-                SetPlayerCollision(player, not state)
-            end
-        end
+        local TextChatService = game:GetService("TextChatService")
+        local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
         
         if state then
-            UpdateAllCollisions()
+            channel:SendAsync("/sheriff " .. LocalPlayer.Name)
             
-            getgenv().AntiFlingPlayerAdded = Players.PlayerAdded:Connect(function(player)
-                player.CharacterAdded:Connect(function()
-                    task.wait(0.5)
-                    SetPlayerCollision(player, false)
-                end)
-                if player.Character then
-                    SetPlayerCollision(player, false)
-                end
+            local Event = game:GetService("ReplicatedStorage").Remotes.Gameplay.RoundEndFade
+            getgenv().AutoSheriffConnection = Event.OnClientEvent:Connect(function()
+                channel:SendAsync("/sheriff " .. LocalPlayer.Name)
             end)
-            
-            getgenv().AntiFlingPlayerRemoving = Players.PlayerRemoving:Connect(function(player)
-                SetPlayerCollision(player, true)
-            end)
-            
-            getgenv().AntiFlingLoop = task.spawn(function()
-                while getgenv().AntiFlingEnabled do
-                    task.wait(1)
-                    UpdateAllCollisions()
-                end
-            end)
-            getgenv().AntiFlingEnabled = true
-            
         else
-            getgenv().AntiFlingEnabled = false
-            
-            if getgenv().AntiFlingPlayerAdded then
-                getgenv().AntiFlingPlayerAdded:Disconnect()
-                getgenv().AntiFlingPlayerAdded = nil
-            end
-            if getgenv().AntiFlingPlayerRemoving then
-                getgenv().AntiFlingPlayerRemoving:Disconnect()
-                getgenv().AntiFlingPlayerRemoving = nil
-            end
-            if getgenv().AntiFlingLoop then
-                task.cancel(getgenv().AntiFlingLoop)
-                getgenv().AntiFlingLoop = nil
-            end
-            
-            for _, player in ipairs(Players:GetPlayers()) do
-                SetPlayerCollision(player, true)
+            if getgenv().AutoSheriffConnection then
+                getgenv().AutoSheriffConnection:Disconnect()
+                getgenv().AutoSheriffConnection = nil
             end
         end
     end
 })
 
-FlingTab:Divider()
+AdminTab:Divider()
+
+local MakeMurdererButton = AdminTab:Button({
+    Title = "Make Murderer", 
+    Desc = "Makes you the murderer",
+    Callback = function()
+        local TextChatService = game:GetService("TextChatService")
+        local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+        channel:SendAsync("/murderer " .. LocalPlayer.Name)
+    end
+})
+
+local MakeMurdererToggle = AdminTab:Toggle({
+    Title = "Automatically Become Murderer",
+    Desc = "Makes you murderer every round.",
+    Icon = "check",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        local TextChatService = game:GetService("TextChatService")
+        local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+        
+        if state then
+            channel:SendAsync("/murderer " .. LocalPlayer.Name)
+            
+            local Event = game:GetService("ReplicatedStorage").Remotes.Gameplay.RoundEndFade
+            getgenv().AutoMurdererConnection = Event.OnClientEvent:Connect(function()
+                channel:SendAsync("/murderer " .. LocalPlayer.Name)
+            end)
+        else
+            if getgenv().AutoMurdererConnection then
+                getgenv().AutoMurdererConnection:Disconnect()
+                getgenv().AutoMurdererConnection = nil
+            end
+        end
+    end
+})
+
+AdminTab:Divider()
+
+local SheriffInput = AdminTab:Input({
+    Title = "Sheriff Input",
+    Icon = "ellipsis",
+    Placeholder = "Enter Username",
+    Callback = function(input)
+        if not input or input:match("^%s*$") then 
+            return 
+        end
+        getgenv().CurrentSheriffInput = input
+        task.spawn(function()
+            pcall(function()
+                local TextChatService = game:GetService("TextChatService")
+                local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+                channel:SendAsync("/sheriff " .. input)
+            end)
+        end)
+    end
+})
+
+local AutoSheriffInputToggle = AdminTab:Toggle({
+    Title = "Auto Sheriff Input",
+    Desc = "Automatically makes the inputted player sheriff every round.",
+    Icon = "check",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        if state then
+            if getgenv().CurrentSheriffInput and getgenv().CurrentSheriffInput ~= "" then
+                task.spawn(function()
+                    pcall(function()
+                        local TextChatService = game:GetService("TextChatService")
+                        local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+                        channel:SendAsync("/sheriff " .. getgenv().CurrentSheriffInput)
+                    end)
+                end)
+            end
+            local Event = game:GetService("ReplicatedStorage").Remotes.Gameplay.RoundEndFade
+            getgenv().AutoSheriffInputConnection = Event.OnClientEvent:Connect(function()
+                if getgenv().CurrentSheriffInput and getgenv().CurrentSheriffInput ~= "" then
+                    task.spawn(function()
+                        pcall(function()
+                            local TextChatService = game:GetService("TextChatService")
+                            local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+                            channel:SendAsync("/sheriff " .. getgenv().CurrentSheriffInput)
+                        end)
+                    end)
+                end
+            end)
+        else
+            if getgenv().AutoSheriffInputConnection then
+                getgenv().AutoSheriffInputConnection:Disconnect()
+                getgenv().AutoSheriffInputConnection = nil
+            end
+        end
+    end
+})
+
+local MurdererInput = AdminTab:Input({
+    Title = "Murderer Input",
+    Icon = "ellipsis",
+    Placeholder = "Enter Username",
+    Callback = function(input)
+        if not input or input:match("^%s*$") then 
+            return 
+        end
+        getgenv().CurrentMurdererInput = input
+        task.spawn(function()
+            pcall(function()
+                local TextChatService = game:GetService("TextChatService")
+                local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+                channel:SendAsync("/murderer " .. input)
+            end)
+        end)
+    end
+})
+
+local AutoMurdererInputToggle = AdminTab:Toggle({
+    Title = "Auto Murderer Input",
+    Desc = "Automatically makes the inputted player murderer every round.",
+    Icon = "check",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        if state then
+            if getgenv().CurrentMurdererInput and getgenv().CurrentMurdererInput ~= "" then
+                task.spawn(function()
+                    pcall(function()
+                        local TextChatService = game:GetService("TextChatService")
+                        local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+                        channel:SendAsync("/murderer " .. getgenv().CurrentMurdererInput)
+                    end)
+                end)
+            end
+            local Event = game:GetService("ReplicatedStorage").Remotes.Gameplay.RoundEndFade
+            getgenv().AutoMurdererInputConnection = Event.OnClientEvent:Connect(function()
+                if getgenv().CurrentMurdererInput and getgenv().CurrentMurdererInput ~= "" then
+                    task.spawn(function()
+                        pcall(function()
+                            local TextChatService = game:GetService("TextChatService")
+                            local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+                            channel:SendAsync("/murderer " .. getgenv().CurrentMurdererInput)
+                        end)
+                    end)
+                end
+            end)
+        else
+            if getgenv().AutoMurdererInputConnection then
+                getgenv().AutoMurdererInputConnection:Disconnect()
+                getgenv().AutoMurdererInputConnection = nil
+            end
+        end
+    end
+})
+
+AdminTab:Divider()
+
+local MapInput = AdminTab:Input({
+    Title = "Map Input",
+    Icon = "map",
+    Placeholder = "Enter Map Name",
+    Callback = function(input)
+        if not input or input:match("^%s*$") then 
+            return 
+        end
+        getgenv().CurrentMapInput = input
+        task.spawn(function()
+            pcall(function()
+                local TextChatService = game:GetService("TextChatService")
+                local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+                channel:SendAsync("/map " .. input)
+            end)
+        end)
+    end
+})
+
+local SetMapButton = AdminTab:Button({
+    Title = "Set Map",
+    Desc = "Sets the Map via Input",
+    Callback = function()
+        if not getgenv().CurrentMapInput or getgenv().CurrentMapInput == "" then
+            return
+        end
+        task.spawn(function()
+            pcall(function()
+                local TextChatService = game:GetService("TextChatService")
+                local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+                channel:SendAsync("/map " .. getgenv().CurrentMapInput)
+            end)
+        end)
+    end
+})
+
+local AutoMapToggle = AdminTab:Toggle({
+    Title = "Automatically Vote Map",
+    Desc = "Automatically votes for the entered map every round.",
+    Icon = "check",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        if state then
+            if getgenv().CurrentMapInput and getgenv().CurrentMapInput ~= "" then
+                task.spawn(function()
+                    pcall(function()
+                        local TextChatService = game:GetService("TextChatService")
+                        local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+                        channel:SendAsync("/map " .. getgenv().CurrentMapInput)
+                    end)
+                end)
+            end
+            local Event = game:GetService("ReplicatedStorage").Remotes.Gameplay.RoundEndFade
+            getgenv().AutoMapConnection = Event.OnClientEvent:Connect(function()
+                if getgenv().CurrentMapInput and getgenv().CurrentMapInput ~= "" then
+                    task.spawn(function()
+                        pcall(function()
+                            local TextChatService = game:GetService("TextChatService")
+                            local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
+                            channel:SendAsync("/map " .. getgenv().CurrentMapInput)
+                        end)
+                    end)
+                end
+            end)
+        else
+            if getgenv().AutoMapConnection then
+                getgenv().AutoMapConnection:Disconnect()
+                getgenv().AutoMapConnection = nil
+            end
+        end
+    end
+})
+
+AdminTab:Divider()
 -------------------------------------------------------------------------------------------------------------------
