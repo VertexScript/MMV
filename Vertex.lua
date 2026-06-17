@@ -631,19 +631,21 @@ local BarrierRemoverButton = MiscTab:Button({
         end
         
         for _, obj in pairs(Workspace:GetDescendants()) do
-            if obj:IsA("BasePart") and not obj:IsA("TrussPart") then
-                if obj.Name == "GlitchProof" then
-                    if not getgenv().BarrierModifiedParts[obj] then
-                        getgenv().BarrierModifiedParts[obj] = obj.CanCollide
+            task.spawn(function()
+                if obj:IsA("BasePart") and not obj:IsA("TrussPart") then
+                    if obj.Name == "GlitchProof" then
+                        if not getgenv().BarrierModifiedParts[obj] then
+                            getgenv().BarrierModifiedParts[obj] = obj.CanCollide
+                        end
+                        obj.CanCollide = false
+                    elseif obj.Transparency == 1 and IsWall(obj) then
+                        if not getgenv().BarrierModifiedParts[obj] then
+                            getgenv().BarrierModifiedParts[obj] = obj.CanCollide
+                        end
+                        obj.CanCollide = false
                     end
-                    obj.CanCollide = false
-                elseif obj.Transparency == 1 and IsWall(obj) then
-                    if not getgenv().BarrierModifiedParts[obj] then
-                        getgenv().BarrierModifiedParts[obj] = obj.CanCollide
-                    end
-                    obj.CanCollide = false
                 end
-            end
+            end)
         end
     end
 })
@@ -664,25 +666,32 @@ local RemoveBarrierAutomaticToggle = MiscTab:Toggle({
         end
         
         local function ProcessObject(obj)
-            if obj:IsA("BasePart") and not obj:IsA("TrussPart") then
-                if obj.Name == "GlitchProof" then
-                    if not getgenv().BarrierModifiedParts[obj] then
-                        getgenv().BarrierModifiedParts[obj] = obj.CanCollide
+            task.spawn(function()
+                if obj:IsA("BasePart") and not obj:IsA("TrussPart") then
+                    if obj.Name == "GlitchProof" then
+                        if not getgenv().BarrierModifiedParts[obj] then
+                            getgenv().BarrierModifiedParts[obj] = obj.CanCollide
+                        end
+                        obj.CanCollide = false
+                        return
                     end
-                    obj.CanCollide = false
-                    return
-                end
-                
-                if obj.Transparency == 1 and IsWall(obj) then
-                    if not getgenv().BarrierModifiedParts[obj] then
-                        getgenv().BarrierModifiedParts[obj] = obj.CanCollide
+                    
+                    if obj.Transparency == 1 and IsWall(obj) then
+                        if not getgenv().BarrierModifiedParts[obj] then
+                            getgenv().BarrierModifiedParts[obj] = obj.CanCollide
+                        end
+                        obj.CanCollide = false
                     end
-                    obj.CanCollide = false
                 end
-            end
+            end)
         end
         
         if state then
+            if getgenv().BarrierDescendantConnection then
+                getgenv().BarrierDescendantConnection:Disconnect()
+                getgenv().BarrierDescendantConnection = nil
+            end
+            
             for _, obj in pairs(Workspace:GetDescendants()) do
                 ProcessObject(obj)
             end
@@ -1239,58 +1248,76 @@ local SheriffTab = Window:Tab({
 })
 
 local SilentAimKeybind = SheriffTab:Keybind({
-Title = "Silent Aim",
-Desc = "Shoots the Murderer",
-Value = "E",
-Callback = function(Value)
-local char = LocalPlayer.Character
-
-if not char or not char:FindFirstChild("Gun") then return end
-   
-   local myHRP = char:FindFirstChild("HumanoidRootPart")
-   if not myHRP then return end
-   
-   local targetPlayer = nil
-   local targetHRP = nil
-   
-   for _, player in ipairs(Players:GetPlayers()) do
-       if player ~= LocalPlayer and player.Character then
-           local hasKnife = player.Character:FindFirstChild("Knife") or 
-                           (player.Backpack and player.Backpack:FindFirstChild("Knife"))
-           
-           if hasKnife then
-               local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-               if hrp then
-                   targetPlayer = player
-                   targetHRP = hrp
-                   break
-               end
-           end
-       end
-   end
-   
-   if not targetPlayer then return end
-   
-   local rayParams = RaycastParams.new()
-   rayParams.FilterType = Enum.RaycastFilterType.Exclude
-   rayParams.FilterDescendantsInstances = {char}
-   
-   local result = workspace:Raycast(myHRP.Position, (targetHRP.Position - myHRP.Position).Unit * 1000, rayParams)
-   
-   if not result or not result.Instance:IsDescendantOf(targetPlayer.Character) then return end
-   
-   local gun = char:FindFirstChild("Gun")
-   if gun then
-       local shootRemote = gun:FindFirstChild("Shoot")
-       if shootRemote then
-           local args = {
-               CFrame.new(myHRP.Position, targetHRP.Position),
-               CFrame.new(targetHRP.Position)
-           }
-           shootRemote:FireServer(unpack(args))
-       end
-   end
-end,
+    Title = "Silent Aim",
+    Desc = "Shoots the Murderer",
+    Value = "E",
+    Callback = function(Value)
+        local char = LocalPlayer.Character
+        if not char then return end
+        
+        local gun = char:FindFirstChild("Gun")
+        if not gun then return end
+        
+        local originCF
+        local gunServer = gun:FindFirstChild("GunServer")
+        if gunServer then
+            local attachment = gunServer:FindFirstChild("GunRaycastAttachment1") or gunServer:FindFirstChild("RaycastAttachment")
+            if attachment then
+                originCF = attachment.WorldCFrame
+            end
+        end
+        
+        if not originCF then
+            local handle = gun:FindFirstChild("Handle") or gun:FindFirstChild("Gun")
+            if handle and handle:IsA("BasePart") then
+                originCF = handle.CFrame
+            end
+        end
+        
+        if not originCF then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            originCF = hrp.CFrame
+        end
+        
+        local targetPlayer = nil
+        local targetHRP = nil
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local hasKnife = player.Character:FindFirstChild("Knife") or 
+                                (player.Backpack and player.Backpack:FindFirstChild("Knife"))
+                
+                if hasKnife then
+                    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        targetPlayer = player
+                        targetHRP = hrp
+                        break
+                    end
+                end
+            end
+        end
+        
+        if not targetPlayer then return end
+        
+        local rayParams = RaycastParams.new()
+        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+        rayParams.FilterDescendantsInstances = {char}
+        
+        local result = workspace:Raycast(originCF.Position, (targetHRP.Position - originCF.Position).Unit * 1000, rayParams)
+        
+        if not result or not result.Instance:IsDescendantOf(targetPlayer.Character) then return end
+        
+        local shootRemote = gun:FindFirstChild("Shoot") or gun:FindFirstChild("Fire")
+        if shootRemote then
+            local args = {
+                CFrame.new(originCF.Position, targetHRP.Position),
+                CFrame.new(targetHRP.Position)
+            }
+            shootRemote:FireServer(unpack(args))
+        end
+    end,
 })
 
 local TriggerbotToggle = SheriffTab:Toggle({
@@ -1305,10 +1332,32 @@ local TriggerbotToggle = SheriffTab:Toggle({
             task.spawn(function()
                 while getgenv().TriggerbotActive do
                     local char = LocalPlayer.Character
-                    if not char or not char:FindFirstChild("Gun") then task.wait() continue end
+                    if not char then task.wait() continue end
                     
-                    local myHRP = char:FindFirstChild("HumanoidRootPart")
-                    if not myHRP then task.wait() continue end
+                    local gun = char:FindFirstChild("Gun") or char:FindFirstChild("Revolver")
+                    if not gun then task.wait() continue end
+                    
+                    local originCF
+                    local gunServer = gun:FindFirstChild("GunServer")
+                    if gunServer then
+                        local attachment = gunServer:FindFirstChild("GunRaycastAttachment1") or gunServer:FindFirstChild("RaycastAttachment")
+                        if attachment then
+                            originCF = attachment.WorldCFrame
+                        end
+                    end
+                    
+                    if not originCF then
+                        local handle = gun:FindFirstChild("Handle") or gun:FindFirstChild("Gun")
+                        if handle and handle:IsA("BasePart") then
+                            originCF = handle.CFrame
+                        end
+                    end
+                    
+                    if not originCF then
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        if not hrp then task.wait() continue end
+                        originCF = hrp.CFrame
+                    end
                     
                     local mouse = LocalPlayer:GetMouse()
                     local target = mouse.Target
@@ -1331,19 +1380,16 @@ local TriggerbotToggle = SheriffTab:Toggle({
                     rayParams.FilterType = Enum.RaycastFilterType.Exclude
                     rayParams.FilterDescendantsInstances = {char}
                     
-                    local direction = (targetHRP.Position - myHRP.Position).Unit * 1000
-                    local result = workspace:Raycast(myHRP.Position, direction, rayParams)
+                    local direction = (targetHRP.Position - originCF.Position).Unit * 1000
+                    local result = workspace:Raycast(originCF.Position, direction, rayParams)
                     
                     if not result or not result.Instance:IsDescendantOf(targetModel) then task.wait() continue end
                     
-                    local gun = char:FindFirstChild("Gun")
-                    if not gun then task.wait() continue end
-                    
-                    local shootRemote = gun:FindFirstChild("Shoot")
+                    local shootRemote = gun:FindFirstChild("Shoot") or gun:FindFirstChild("Fire")
                     if not shootRemote then task.wait() continue end
                     
                     local args = {
-                        CFrame.new(myHRP.Position, targetHRP.Position),
+                        CFrame.new(originCF.Position, targetHRP.Position),
                         CFrame.new(targetHRP.Position)
                     }
                     shootRemote:FireServer(unpack(args))
@@ -1651,82 +1697,6 @@ local AdminTab = Window:Tab({
     Icon = "sparkles",
     Locked = false,
 })
-
-local MakeSheriffButton = AdminTab:Button({
-    Title = "Make Sheriff",
-    Desc = "Makes you the sheriff",
-    Callback = function()
-        local TextChatService = game:GetService("TextChatService")
-        local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
-        channel:SendAsync("/sheriff " .. LocalPlayer.Name)
-    end
-})
-
-local MakeSheriffToggle = AdminTab:Toggle({
-    Title = "Automatically Become Sheriff",
-    Desc = "Makes you sheriff every round.",
-    Icon = "check",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        local TextChatService = game:GetService("TextChatService")
-        local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
-        
-        if state then
-            channel:SendAsync("/sheriff " .. LocalPlayer.Name)
-            
-            local Event = game:GetService("ReplicatedStorage").Remotes.Gameplay.RoundEndFade
-            getgenv().AutoSheriffConnection = Event.OnClientEvent:Connect(function()
-                channel:SendAsync("/sheriff " .. LocalPlayer.Name)
-            end)
-        else
-            if getgenv().AutoSheriffConnection then
-                getgenv().AutoSheriffConnection:Disconnect()
-                getgenv().AutoSheriffConnection = nil
-            end
-        end
-    end
-})
-
-AdminTab:Divider()
-
-local MakeMurdererButton = AdminTab:Button({
-    Title = "Make Murderer", 
-    Desc = "Makes you the murderer",
-    Callback = function()
-        local TextChatService = game:GetService("TextChatService")
-        local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
-        channel:SendAsync("/murderer " .. LocalPlayer.Name)
-    end
-})
-
-local MakeMurdererToggle = AdminTab:Toggle({
-    Title = "Automatically Become Murderer",
-    Desc = "Makes you murderer every round.",
-    Icon = "check",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        local TextChatService = game:GetService("TextChatService")
-        local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
-        
-        if state then
-            channel:SendAsync("/murderer " .. LocalPlayer.Name)
-            
-            local Event = game:GetService("ReplicatedStorage").Remotes.Gameplay.RoundEndFade
-            getgenv().AutoMurdererConnection = Event.OnClientEvent:Connect(function()
-                channel:SendAsync("/murderer " .. LocalPlayer.Name)
-            end)
-        else
-            if getgenv().AutoMurdererConnection then
-                getgenv().AutoMurdererConnection:Disconnect()
-                getgenv().AutoMurdererConnection = nil
-            end
-        end
-    end
-})
-
-AdminTab:Divider()
 
 local SheriffInput = AdminTab:Input({
     Title = "Sheriff Input",
