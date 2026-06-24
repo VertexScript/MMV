@@ -14,12 +14,23 @@ Window:Tag({
     Radius = 30,
 })
 
-local Event = game:GetService("ReplicatedStorage").ChatMessage
-firesignal(Event.OnClientEvent, 
-    {
-        text = "[Private] Vertex Loaded. ™"
-    }
-)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = game:GetService("TextChatService")
+local TweenService = game:GetService("TweenService")
+local StarterGui = game:GetService("StarterGui")
+
+local LocalPlayer = Players.LocalPlayer
+local Remotes = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay")
+local FadeEvent = Remotes:WaitForChild("Fade")
+local DataChangedEvent = Remotes:WaitForChild("PlayerDataChanged")
+local RoundEndEvent = Remotes:WaitForChild("RoundEndFade")
+local RoundStartEvent = Remotes:WaitForChild("TeleportToPart")
+
+local Event = ReplicatedStorage:WaitForChild("ChatMessage")
+firesignal(Event.OnClientEvent, { text = "[Private] Vertex Loaded. ™" })
 -------------------------------------------------------------------------------------------------------------------
 local SettingsTab = Window:Tab({
     Title = "Settings",
@@ -44,59 +55,6 @@ local ESPTab = Window:Tab({
     Icon = "hat-glasses",
     Locked = false,
 })
-
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
-local Workspace = game:GetService("Workspace")
-
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local LocalPlayer = Players.LocalPlayer
-
-local Remotes = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay")
-local FadeEvent = Remotes:WaitForChild("Fade")
-local DataChangedEvent = Remotes:WaitForChild("PlayerDataChanged")
-local RoundEndEvent = Remotes:WaitForChild("RoundEndFade")
-local RoundStartEvent = Remotes:WaitForChild("TeleportToPart")
-
-local function GetToolType(player)
-    local backpack = player:FindFirstChild("Backpack")
-    local character = player.Character
-    
-    if backpack then
-        if backpack:FindFirstChild("Gun") then return "Gun" end
-        if backpack:FindFirstChild("Knife") then return "Knife" end
-    end
-    
-    if character then
-        if character:FindFirstChild("Gun") then return "Gun" end
-        if character:FindFirstChild("Knife") then return "Knife" end
-    end
-    
-    return nil
-end
-
-local function GetRoleColor(player, playerRoles)
-    for id, data in pairs(playerRoles) do
-        if data and typeof(data) == "table" then
-            if tostring(id) == tostring(player.UserId) or id == player.Name then
-                local colors = {
-                    Murderer = Color3.new(1, 0, 0),
-                    Sheriff = Color3.new(0, 0.5, 1),
-                    Innocent = Color3.new(0, 1, 0)
-                }
-                return colors[data.Role] or colors.Innocent
-            end
-        end
-    end
-    
-    local toolType = GetToolType(player)
-    if toolType == "Gun" then return Color3.new(0, 0.5, 1) end
-    if toolType == "Knife" then return Color3.new(1, 0, 0) end
-    
-    return Color3.new(0, 1, 0)
-end
 
 local function CleanupESP(envPrefix)
     local connections = {
@@ -129,13 +87,52 @@ local function CleanupESP(envPrefix)
     local objects = getgenv()[envPrefix .. "Objects"]
     if objects then
         for _, obj in pairs(objects) do
-            if obj then obj:Destroy() end
+            if obj then pcall(function() obj:Destroy() end) end
         end
         getgenv()[envPrefix .. "Objects"] = {}
     end
     
     local rolesKey = envPrefix:gsub("ESP", "") .. "Roles"
     getgenv()[rolesKey] = {}
+end
+
+local RoleColors = {
+    Murderer = Color3.new(1, 0, 0),
+    Sheriff = Color3.new(0, 0.5, 1),
+    Innocent = Color3.new(0, 1, 0)
+}
+
+local function GetToolType(player)
+    local backpack = player:FindFirstChild("Backpack")
+    local character = player.Character
+    
+    if backpack then
+        if backpack:FindFirstChild("Gun") then return "Gun" end
+        if backpack:FindFirstChild("Knife") then return "Knife" end
+    end
+    
+    if character then
+        if character:FindFirstChild("Gun") then return "Gun" end
+        if character:FindFirstChild("Knife") then return "Knife" end
+    end
+    
+    return nil
+end
+
+local function GetRoleColor(player, playerRoles)
+    for id, data in pairs(playerRoles) do
+        if data and typeof(data) == "table" then
+            if tostring(id) == tostring(player.UserId) or id == player.Name then
+                return RoleColors[data.Role] or RoleColors.Innocent
+            end
+        end
+    end
+    
+    local toolType = GetToolType(player)
+    if toolType == "Gun" then return Color3.new(0, 0.5, 1) end
+    if toolType == "Knife" then return Color3.new(1, 0, 0) end
+    
+    return Color3.new(0, 1, 0)
 end
 
 local PlayerESPToggle = ESPTab:Toggle({
@@ -234,7 +231,7 @@ local PlayerESPToggle = ESPTab:Toggle({
         
         getgenv().PlayerESPRefreshLoop = task.spawn(function()
             while true do
-                task.wait(1)
+                task.wait(2)
                 for _, player in ipairs(Players:GetPlayers()) do
                     if player ~= LocalPlayer then
                         if not getgenv().PlayerESPObjects[player] then
@@ -368,7 +365,7 @@ local NameESPToggle = ESPTab:Toggle({
         
         getgenv().NameESPRefreshLoop = task.spawn(function()
             while true do
-                task.wait(1)
+                task.wait(2)
                 for _, player in ipairs(Players:GetPlayers()) do
                     if player ~= LocalPlayer then
                         if not getgenv().NameESPObjects[player] then
@@ -431,9 +428,7 @@ local GunDropToggle = ESPTab:Toggle({
             end
             
             DescendantAddedConnection = Workspace.DescendantAdded:Connect(OnGunDropAdded)
-            
             getgenv().GunDropDescendantAddedConnection = DescendantAddedConnection
-            
         else
             if getgenv().GunDropDescendantAddedConnection then
                 getgenv().GunDropDescendantAddedConnection:Disconnect()
@@ -563,7 +558,6 @@ local TeleportLobby = MiscTab:Button({
         if #spawnPoints > 0 then
             local randomSpawn = spawnPoints[math.random(1, #spawnPoints)]
             hrp.CFrame = randomSpawn.CFrame + Vector3.new(0, 5, 0)
-        else
         end
     end
 })
@@ -610,7 +604,6 @@ local TeleportMap = MiscTab:Button({
         if #spawnPoints > 0 then
             local randomSpawn = spawnPoints[math.random(1, #spawnPoints)]
             hrp.CFrame = randomSpawn.CFrame + Vector3.new(0, 5, 0)
-        else
         end
     end
 })
@@ -631,21 +624,19 @@ local BarrierRemoverButton = MiscTab:Button({
         end
         
         for _, obj in pairs(Workspace:GetDescendants()) do
-            task.spawn(function()
-                if obj:IsA("BasePart") and not obj:IsA("TrussPart") then
-                    if obj.Name == "GlitchProof" then
-                        if not getgenv().BarrierModifiedParts[obj] then
-                            getgenv().BarrierModifiedParts[obj] = obj.CanCollide
-                        end
-                        obj.CanCollide = false
-                    elseif obj.Transparency == 1 and IsWall(obj) then
-                        if not getgenv().BarrierModifiedParts[obj] then
-                            getgenv().BarrierModifiedParts[obj] = obj.CanCollide
-                        end
-                        obj.CanCollide = false
+            if obj:IsA("BasePart") and not obj:IsA("TrussPart") then
+                if obj.Name == "GlitchProof" then
+                    if not getgenv().BarrierModifiedParts[obj] then
+                        getgenv().BarrierModifiedParts[obj] = obj.CanCollide
                     end
+                    obj.CanCollide = false
+                elseif obj.Transparency == 1 and IsWall(obj) then
+                    if not getgenv().BarrierModifiedParts[obj] then
+                        getgenv().BarrierModifiedParts[obj] = obj.CanCollide
+                    end
+                    obj.CanCollide = false
                 end
-            end)
+            end
         end
     end
 })
@@ -666,24 +657,22 @@ local RemoveBarrierAutomaticToggle = MiscTab:Toggle({
         end
         
         local function ProcessObject(obj)
-            task.spawn(function()
-                if obj:IsA("BasePart") and not obj:IsA("TrussPart") then
-                    if obj.Name == "GlitchProof" then
-                        if not getgenv().BarrierModifiedParts[obj] then
-                            getgenv().BarrierModifiedParts[obj] = obj.CanCollide
-                        end
-                        obj.CanCollide = false
-                        return
+            if obj:IsA("BasePart") and not obj:IsA("TrussPart") then
+                if obj.Name == "GlitchProof" then
+                    if not getgenv().BarrierModifiedParts[obj] then
+                        getgenv().BarrierModifiedParts[obj] = obj.CanCollide
                     end
-                    
-                    if obj.Transparency == 1 and IsWall(obj) then
-                        if not getgenv().BarrierModifiedParts[obj] then
-                            getgenv().BarrierModifiedParts[obj] = obj.CanCollide
-                        end
-                        obj.CanCollide = false
-                    end
+                    obj.CanCollide = false
+                    return
                 end
-            end)
+                
+                if obj.Transparency == 1 and IsWall(obj) then
+                    if not getgenv().BarrierModifiedParts[obj] then
+                        getgenv().BarrierModifiedParts[obj] = obj.CanCollide
+                    end
+                    obj.CanCollide = false
+                end
+            end
         end
         
         if state then
@@ -719,7 +708,7 @@ MiscTab:Divider()
 local TryhardToolsEnabled = false
 
 local function giveTools()
-    local ReplicateToy = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Extras"):WaitForChild("ReplicateToy")
+    local ReplicateToy = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Extras"):WaitForChild("ReplicateToy")
     ReplicateToy:InvokeServer("GGSign")
     ReplicateToy:InvokeServer("GoldBomb")
 end
@@ -747,6 +736,146 @@ end)
 
 MiscTab:Divider()
 
+local InvisibleKeybind = MiscTab:Keybind({
+    Title = "Turn Invisible",
+    Desc = "Turns you Invisible making it so no one can see you.",
+    Value = "Y",
+    Callback = function(v)
+        if not _G.InvisOn then
+            _G.InvisOn = true
+            
+            local character = LocalPlayer.Character
+            if not character then return end
+            
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            local hrp = character:FindFirstChild("HumanoidRootPart")
+            if not humanoid or not hrp then return end
+            
+            _G.SavedCFrame = hrp.CFrame
+            _G.OriginalCameraSubject = Workspace.CurrentCamera.CameraSubject
+            _G.OriginalAutoRotate = humanoid.AutoRotate
+            _G.Humanoid = humanoid
+            
+            local function isTool(part)
+                local parent = part.Parent
+                while parent and parent ~= character do
+                    if parent:IsA("Tool") then
+                        return true
+                    end
+                    parent = parent.Parent
+                end
+                return false
+            end
+            
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and not isTool(part) then
+                    part.LocalTransparencyModifier = 1
+                end
+            end
+            
+            _G.InvisConnection = character.DescendantAdded:Connect(function(descendant)
+                if descendant:IsA("BasePart") and not isTool(descendant) then
+                    descendant.LocalTransparencyModifier = 1
+                end
+            end)
+            
+            local highlight = Instance.new("Highlight")
+            highlight.FillTransparency = 1
+            highlight.OutlineColor = Color3.new(1, 1, 1)
+            highlight.Parent = character
+            _G.Outline = highlight
+            
+            character:MoveTo(Vector3.new(-25.95, 84, 3537.55))
+            task.wait(0.15)
+            
+            local seat = Instance.new("Seat", Workspace)
+            seat.Anchored = false
+            seat.CanCollide = false
+            seat.Name = "invischair"
+            seat.Transparency = 1
+            seat.Position = Vector3.new(-25.95, 84, 3537.55)
+            
+            Workspace.CurrentCamera.CameraSubject = hrp
+            
+            local weld = Instance.new("Weld", seat)
+            weld.Part0 = seat
+            weld.Part1 = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+            
+            task.wait()
+            seat.CFrame = _G.SavedCFrame
+            
+            local UserInputService = game:GetService("UserInputService")
+            
+            _G.RotationConnection = game:GetService("RunService").RenderStepped:Connect(function()
+                if not _G.InvisOn or not seat then return end
+                
+                local hum = _G.Humanoid
+                if not hum then return end
+                
+                if UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter then
+                    hum.AutoRotate = false
+                    local cam = Workspace.CurrentCamera
+                    local look = cam.CFrame.LookVector
+                    look = Vector3.new(look.X, 0, look.Z).Unit
+                    if look.Magnitude > 0 then
+                        seat.CFrame = CFrame.new(seat.Position, seat.Position + look)
+                    end
+                else
+                    hum.AutoRotate = true
+                end
+            end)
+            
+        else
+            _G.InvisOn = false
+            
+            if _G.InvisConnection then
+                _G.InvisConnection:Disconnect()
+                _G.InvisConnection = nil
+            end
+            
+            if _G.RotationConnection then
+                _G.RotationConnection:Disconnect()
+                _G.RotationConnection = nil
+            end
+            
+            local character = LocalPlayer.Character
+            if character then
+                for _, part in pairs(character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.LocalTransparencyModifier = 0
+                    end
+                end
+                
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid.AutoRotate = _G.OriginalAutoRotate ~= nil and _G.OriginalAutoRotate or true
+                end
+                
+                if _G.OriginalCameraSubject then
+                    Workspace.CurrentCamera.CameraSubject = _G.OriginalCameraSubject
+                end
+            end
+            
+            if _G.Outline then
+                _G.Outline:Destroy()
+                _G.Outline = nil
+            end
+            
+            local invisChair = Workspace:FindFirstChild("invischair")
+            if invisChair then
+                invisChair:Destroy()
+            end
+            
+            _G.SavedCFrame = nil
+            _G.OriginalCameraSubject = nil
+            _G.OriginalAutoRotate = nil
+            _G.Humanoid = nil
+        end
+    end
+})
+
+MiscTab:Divider()
+
 local OutfitToggle = MiscTab:Toggle({
     Title = "Outfits Toggle",
     Desc = "Toggles outfit GUI in KMM, might work when Season 2 comes out",
@@ -757,11 +886,7 @@ local OutfitToggle = MiscTab:Toggle({
         if state then
             getgenv().OutfitGUIToggleActive = true
             
-            local Players = game:GetService("Players")
-            local ReplicatedStorage = game:GetService("ReplicatedStorage")
-            local LocalPlayer = Players.LocalPlayer
             local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-            
             local gameTopbar = PlayerGui:WaitForChild("GameTopbar")
             local originalScript = gameTopbar:FindFirstChild("CatalogV4")
             if originalScript and originalScript:IsA("LocalScript") then
@@ -819,6 +944,7 @@ local OutfitToggle = MiscTab:Toggle({
             
             getgenv().OutfitLoop = task.spawn(function()
                 while getgenv().OutfitGUIToggleActive do
+                    task.wait(0.5)
                     local container = gameTopbar:FindFirstChild("Container")
                     if container then
                         local avatar = container:FindFirstChild("Avatar")
@@ -833,11 +959,8 @@ local OutfitToggle = MiscTab:Toggle({
                             catalogGUI.Enabled = true
                         end
                     end
-                    
-                    task.wait(0.05)
                 end
             end)
-            
         else
             getgenv().OutfitGUIToggleActive = false
             getgenv().OutfitWasOpened = false
@@ -937,72 +1060,11 @@ local GrabGunToggle = InnocentTab:Toggle({
                     end
                 end
             end)
-            
-            local existingGun = Workspace:FindFirstChild("GunDrop", true)
-            if existingGun then
-                getgenv().AutoGrabGunConnection:Fire(existingGun)
-            end
         else
             if getgenv().AutoGrabGunConnection then
                 getgenv().AutoGrabGunConnection:Disconnect()
                 getgenv().AutoGrabGunConnection = nil
             end
-        end
-    end
-})
-
-InnocentTab:Divider()
-
-local InvisibleKeybind = InnocentTab:Keybind({
-    Title = "Turn Invisible",
-    Desc = "Turns you Invisible (can't shoot as sheriff and can't kill as murderer)",
-    Value = "Y",
-    Callback = function()
-        local char = LocalPlayer.Character
-        if not char then return end
-        
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        
-        if getgenv().InvisOn then
-            getgenv().InvisOn = false
-            
-            for _, p in ipairs(char:GetDescendants()) do
-                if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
-                    p.Transparency = 0
-                end
-            end
-            
-            if workspace:FindFirstChild("invischair") then
-                workspace.invischair:Destroy()
-            end
-            
-        else
-            getgenv().InvisOn = true
-            
-            for _, p in ipairs(char:GetDescendants()) do
-                if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
-                    p.Transparency = 0.5
-                end
-            end
-            
-            local savedpos = hrp.CFrame
-            
-            char:MoveTo(Vector3.new(-25.95, 84, 3537.55))
-            task.wait(0.15)
-            
-            local Seat = Instance.new("Seat", workspace)
-            Seat.Anchored = false
-            Seat.CanCollide = false
-            Seat.Name = "invischair"
-            Seat.Transparency = 1
-            Seat.Position = Vector3.new(-25.95, 84, 3537.55)
-            
-            local Weld = Instance.new("Weld", Seat)
-            Weld.Part0 = Seat
-            Weld.Part1 = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
-            
-            Seat.CFrame = savedpos
         end
     end
 })
@@ -1062,7 +1124,7 @@ local SpeedGlitchToggle = InnocentTab:Toggle({
                     
                     local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
                     local tweenGoal = {WalkSpeed = targetSpeed}
-                    currentTween = game:GetService("TweenService"):Create(humanoid, tweenInfo, tweenGoal)
+                    currentTween = TweenService:Create(humanoid, tweenInfo, tweenGoal)
                     currentTween:Play()
                 end
                 
@@ -1228,7 +1290,6 @@ local EasierGlitchingToggle = InnocentTab:Toggle({
             end
             
             getgenv().GlitchingCharacterAdded = LocalPlayer.CharacterAdded:Connect(OnCharacterAdded)
-            
         else
             getgenv().GlitchingActive = false
             getgenv().GlitchingTools = {}
@@ -1394,7 +1455,7 @@ local TriggerbotToggle = SheriffTab:Toggle({
                     }
                     shootRemote:FireServer(unpack(args))
                     
-                    task.wait(0.01)
+                    task.wait(0.05)
                 end
             end)
         else
@@ -1438,7 +1499,7 @@ local PlayerDropdown = MurdererTab:Dropdown({
 
 task.spawn(function()
     while true do
-        task.wait(5)
+        task.wait(10)
         local newList = GetPlayerList()
         PlayerDropdown:Refresh(newList)
         
@@ -1567,136 +1628,15 @@ local BankVaultButton = MapTab:Button({
     end
 })
 -------------------------------------------------------------------------------------------------------------------
-local VotingTab = Window:Tab({
-    Title = "Voting",
-    Icon = "map-pin-check",
-    Locked = false,
-})
-
-local MapDropdown = VotingTab:Dropdown({
-    Title = "Maps you can Vote for",
-    Desc = "Allows you to select a map to vote for",
-    Values = {},
-    Value = nil,
-    Multi = false,
-    AllowNone = true,
-    Callback = function(option) 
-        getgenv().SelectedMap = option
-    end
-})
-
-local function GetAvailableMaps()
-    local maps = {}
-    local regularLobby = Workspace:FindFirstChild("RegularLobby")
-    
-    if regularLobby then
-        for i = 1, 3 do
-            local votePad = regularLobby:FindFirstChild("VotePad" .. i)
-            if votePad then
-                local voteInfoGui = votePad:FindFirstChild("VoteInfoGui")
-                if voteInfoGui then
-                    local container = voteInfoGui:FindFirstChild("Container")
-                    if container then
-                        local mapNameLabel = container:FindFirstChild("MapName")
-                        if mapNameLabel and mapNameLabel:IsA("TextLabel") and mapNameLabel.Text ~= "" then
-                            table.insert(maps, mapNameLabel.Text)
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    return maps
-end
-
-getgenv().MapToPad = {}
-
-local function UpdateMaps()
-    getgenv().MapToPad = {}
-    local regularLobby = Workspace:FindFirstChild("RegularLobby")
-    
-    if regularLobby then
-        for i = 1, 3 do
-            local votePad = regularLobby:FindFirstChild("VotePad" .. i)
-            if votePad then
-                local voteInfoGui = votePad:FindFirstChild("VoteInfoGui")
-                if voteInfoGui then
-                    local container = voteInfoGui:FindFirstChild("Container")
-                    if container then
-                        local mapNameLabel = container:FindFirstChild("MapName")
-                        if mapNameLabel and mapNameLabel:IsA("TextLabel") and mapNameLabel.Text ~= "" then
-                            getgenv().MapToPad[mapNameLabel.Text] = votePad
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    local maps = {}
-    for mapName, _ in pairs(getgenv().MapToPad) do
-        table.insert(maps, mapName)
-    end
-    
-    MapDropdown.Values = maps
-    if MapDropdown.SetValues then
-        MapDropdown.SetValues(maps)
-    end
-end
-
-UpdateMaps()
-
-task.spawn(function()
-    while true do
-        task.wait(5)
-        UpdateMaps()
-    end
-end)
-
-local VoteButton = VotingTab:Button({
-    Title = "Vote for Selected Map",
-    Desc = "Votes for the Map you selected, then resets.",
-    Locked = false,
-    Callback = function()
-        local selectedMap = getgenv().SelectedMap
-        if not selectedMap then return end
-        
-        local votePad = getgenv().MapToPad[selectedMap]
-        if not votePad then 
-            UpdateMaps()
-            votePad = getgenv().MapToPad[selectedMap]
-            if not votePad then return end
-        end
-        
-        local pad = votePad:FindFirstChild("Pad")
-        if pad and pad:IsA("BasePart") then
-            local character = game.Players.LocalPlayer.Character
-            if character then
-                local hrp = character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    hrp.CFrame = pad.CFrame + Vector3.new(0, 3, 0)
-                end
-            end
-        end
-        
-        getgenv().SelectedMap = nil
-        MapDropdown.Value = nil
-    end
-})
--------------------------------------------------------------------------------------------------------------------
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-
-getgenv().CurrentSheriffInput = ""
-getgenv().CurrentMurdererInput = ""
-getgenv().CurrentMapInput = ""
-
 local AdminTab = Window:Tab({
     Title = "Admin",
     Icon = "sparkles",
     Locked = false,
 })
+
+getgenv().CurrentSheriffInput = ""
+getgenv().CurrentMurdererInput = ""
+getgenv().CurrentMapInput = ""
 
 local SheriffInput = AdminTab:Input({
     Title = "Sheriff Input",
@@ -1709,7 +1649,6 @@ local SheriffInput = AdminTab:Input({
         getgenv().CurrentSheriffInput = input
         task.spawn(function()
             pcall(function()
-                local TextChatService = game:GetService("TextChatService")
                 local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
                 channel:SendAsync("/sheriff " .. input)
             end)
@@ -1728,18 +1667,16 @@ local AutoSheriffInputToggle = AdminTab:Toggle({
             if getgenv().CurrentSheriffInput and getgenv().CurrentSheriffInput ~= "" then
                 task.spawn(function()
                     pcall(function()
-                        local TextChatService = game:GetService("TextChatService")
                         local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
                         channel:SendAsync("/sheriff " .. getgenv().CurrentSheriffInput)
                     end)
                 end)
             end
-            local Event = game:GetService("ReplicatedStorage").Remotes.Gameplay.RoundEndFade
+            local Event = ReplicatedStorage.Remotes.Gameplay.RoundEndFade
             getgenv().AutoSheriffInputConnection = Event.OnClientEvent:Connect(function()
                 if getgenv().CurrentSheriffInput and getgenv().CurrentSheriffInput ~= "" then
                     task.spawn(function()
                         pcall(function()
-                            local TextChatService = game:GetService("TextChatService")
                             local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
                             channel:SendAsync("/sheriff " .. getgenv().CurrentSheriffInput)
                         end)
@@ -1766,7 +1703,6 @@ local MurdererInput = AdminTab:Input({
         getgenv().CurrentMurdererInput = input
         task.spawn(function()
             pcall(function()
-                local TextChatService = game:GetService("TextChatService")
                 local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
                 channel:SendAsync("/murderer " .. input)
             end)
@@ -1785,18 +1721,16 @@ local AutoMurdererInputToggle = AdminTab:Toggle({
             if getgenv().CurrentMurdererInput and getgenv().CurrentMurdererInput ~= "" then
                 task.spawn(function()
                     pcall(function()
-                        local TextChatService = game:GetService("TextChatService")
                         local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
                         channel:SendAsync("/murderer " .. getgenv().CurrentMurdererInput)
                     end)
                 end)
             end
-            local Event = game:GetService("ReplicatedStorage").Remotes.Gameplay.RoundEndFade
+            local Event = ReplicatedStorage.Remotes.Gameplay.RoundEndFade
             getgenv().AutoMurdererInputConnection = Event.OnClientEvent:Connect(function()
                 if getgenv().CurrentMurdererInput and getgenv().CurrentMurdererInput ~= "" then
                     task.spawn(function()
                         pcall(function()
-                            local TextChatService = game:GetService("TextChatService")
                             local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
                             channel:SendAsync("/murderer " .. getgenv().CurrentMurdererInput)
                         end)
@@ -1825,7 +1759,6 @@ local MapInput = AdminTab:Input({
         getgenv().CurrentMapInput = input
         task.spawn(function()
             pcall(function()
-                local TextChatService = game:GetService("TextChatService")
                 local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
                 channel:SendAsync("/map " .. input)
             end)
@@ -1842,7 +1775,6 @@ local SetMapButton = AdminTab:Button({
         end
         task.spawn(function()
             pcall(function()
-                local TextChatService = game:GetService("TextChatService")
                 local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
                 channel:SendAsync("/map " .. getgenv().CurrentMapInput)
             end)
@@ -1861,18 +1793,16 @@ local AutoMapToggle = AdminTab:Toggle({
             if getgenv().CurrentMapInput and getgenv().CurrentMapInput ~= "" then
                 task.spawn(function()
                     pcall(function()
-                        local TextChatService = game:GetService("TextChatService")
                         local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
                         channel:SendAsync("/map " .. getgenv().CurrentMapInput)
                     end)
                 end)
             end
-            local Event = game:GetService("ReplicatedStorage").Remotes.Gameplay.RoundEndFade
+            local Event = ReplicatedStorage.Remotes.Gameplay.RoundEndFade
             getgenv().AutoMapConnection = Event.OnClientEvent:Connect(function()
                 if getgenv().CurrentMapInput and getgenv().CurrentMapInput ~= "" then
                     task.spawn(function()
                         pcall(function()
-                            local TextChatService = game:GetService("TextChatService")
                             local channel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral")
                             channel:SendAsync("/map " .. getgenv().CurrentMapInput)
                         end)
@@ -1887,6 +1817,4 @@ local AutoMapToggle = AdminTab:Toggle({
         end
     end
 })
-
-AdminTab:Divider()
 -------------------------------------------------------------------------------------------------------------------
